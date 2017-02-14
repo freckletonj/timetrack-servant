@@ -51,10 +51,9 @@ import Database.Persist.TH
 
 import Models
 import Config
-
-
 import Lib
 
+import Api.TimeEntry
 
 type API auths = MiscAPI
                  :<|> "times" :> TimesAPI
@@ -65,39 +64,18 @@ type API auths = MiscAPI
 
 server :: Config -> CookieSettings -> JWTSettings -> Server (API auths)
 server cfg cs jwts = miscServer
-                 :<|> timesServer
+                 :<|> timesServer cfg
                  :<|> readerServer cfg
                  :<|> protected
                  :<|> unprotected cs jwts
 
 
-allTimeEntries :: App [Entity TimeEntry]
-allTimeEntries = runDb (selectList [] [])
-
--- userApp :: a -> Config -> Application
--- userApp jwtCfg cfg = serve (Proxy :: Proxy (API '[JWT])) (appToServer jwtCfg cfg)
-
--- appToServer :: a -> Config -> Server (API '[JWT])
--- appToServer jwtCfg cfg = enter (convertApp cfg) (server defaultCookieSettings jwtCfg)
-
--- convertApp :: Config -> App :~> ExceptT ServantErr IO
--- convertApp cfg = Nat (flip runReaderT cfg . runApp)
-
--- for static assets
-files :: Application
-files = serveDirectory "assets"
-
-
 startApp :: IO ()
 startApp = do
-  -- This Db IO happens outside of servant
-  runStdoutLoggingT $ withPostgresqlPool connStr 10 $ liftSqlPersistMPool $ do
-    x <- selNow
-    liftIO (print x)
 
   -- Db for use _inside_ servant
   connPool <- runStdoutLoggingT $ createPostgresqlPool connStr 8
-  
+
   myKey <- generateKey
   let env = Development
       dbcfg = (Config connPool env)
@@ -114,7 +92,10 @@ startApp = do
                              cfg
                              (server dbcfg defaultCookieSettings jwtCfg)
 
-  -- generate a valid test token
+  -- run migrations
+  runSqlPool doMigrations connPool
+
+  -- generate a valid test token, for testing by hand
   etoken <- makeJWT (User "charizard" "pokemon.awesome@hotmail.com") jwtCfg Nothing
   case etoken of
     Left e -> putStrLn $ "Error generating token: " ++ show e 

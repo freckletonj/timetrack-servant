@@ -29,7 +29,7 @@ TimeEntry json
   deriving Show
 |]
 
-doMigrations :: SqlPersistM ()
+doMigrations :: SqlPersistT IO ()
 doMigrations = runMigration migrateAll
 
 runDb :: (MonadReader Config m, MonadIO m) => SqlPersistT IO b -> m b
@@ -37,7 +37,8 @@ runDb query = do
   pool <- asks getPool
   liftIO $ runSqlPool query pool
 
-
---instance ToJSON Dbtime where
 selNow :: MonadIO m => ReaderT SqlBackend m [Single UTCTime]
 selNow = rawSql "select now()" []
+
+allTimeEntries :: App [Entity TimeEntry]
+allTimeEntries = runDb (selectList [] [])
