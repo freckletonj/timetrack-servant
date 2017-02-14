@@ -22,9 +22,6 @@ import           Database.Persist.TH  (mkMigrate, mkPersist, persistLowerCase,
                                        share, sqlSettings)
 import           GHC.Generics         (Generic)
 
---import           Config
-
-
 share [mkPersist sqlSettings, mkMigrate "migrateAll"] [persistLowerCase|
 TimeEntry json
   clockin      UTCTime
@@ -35,18 +32,3 @@ TimeEntry json
 
 doMigrations :: SqlPersistM ()
 doMigrations = runMigration migrateAll
-
--- share [mkPersist sqlSettings, mkMigrate "migrateAll"] [persistLowerCase|
--- User json
---     name String
---     email String
---     deriving Show
--- |]
-
--- doMigrations :: SqlPersistM ()
--- doMigrations = runMigration migrateAll
-
--- runDb :: (MonadReader Config m, MonadIO m) => SqlPersistT IO b -> m b
--- runDb query = do
---     pool <- asks getPool
---     liftIO $ runSqlPool query pool

@@ -44,11 +44,10 @@ import Database.Persist.Postgresql (runSqlPool
                                    , withPostgresqlPool
                                    , liftSqlPersistMPool
                                    , Entity
-                                   , Single
                                    , SqlBackend
-                                   , selectList
-                                   , unSingle)
-import Database.Persist.Sql (rawSql, SqlPersistT)
+                                   , selectList)
+
+import Database.Persist.Sql (rawSql, SqlPersistT, unSingle, Single)
 import Database.Persist.TH
 
 import Models
@@ -89,10 +88,7 @@ readerServerT :: ServerT ReaderAPI App -- (ReaderT (IO a) Config)
 readerServerT = f
   where
     f :: App UTCTime
-    f = do
-      x <- runDb selNow
-      return $ unSingle $ head x
-
+    f = runDb selNow >>= return . unSingle . head
 
 readerAPI :: Proxy ReaderAPI
 readerAPI = Proxy
@@ -109,20 +105,13 @@ readerServer  cfg = enter (readerToHandler cfg) readerServerT
 selNow :: MonadIO m => ReaderT SqlBackend m [Single UTCTime]
 selNow = rawSql "select now()" []
 
-selNow' :: App [Single UTCTime]
-selNow' = runDb (rawSql "select now()" [])
-
 -- belongs in Models.hs ?
 runDb :: (MonadReader Config m, MonadIO m) => SqlPersistT IO b -> m b
 runDb query = do
   pool <- asks getPool
   liftIO $ runSqlPool query pool
 
--- runDb' ::  ReaderT SqlBackend IO a -> IO a
--- runDb' query = do
---   pool <- asks getPool
---   runSqlPool query pool
-  
+
 --------------------------------------------------
 -- Time API
 
@@ -253,8 +242,9 @@ startApp = do
   
   myKey <- generateKey
   let env = Development
-      jwtCfg = defaultJWTSettings myKey
       dbcfg = (Config connPool env)
+      
+      jwtCfg = defaultJWTSettings myKey
       cfg = defaultCookieSettings
          :. jwtCfg
          :. EmptyContext
