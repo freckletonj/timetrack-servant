@@ -46,7 +46,8 @@ import Database.Persist.Postgresql (runSqlPool
                                    , Entity
                                    , Single
                                    , SqlBackend
-                                   , selectList)
+                                   , selectList
+                                   , unSingle)
 import Database.Persist.Sql (rawSql, SqlPersistT)
 import Database.Persist.TH
 
@@ -66,33 +67,62 @@ times = [ TimeEntry (posixSecondsToUTCTime 0) (Just $ posixSecondsToUTCTime 1) "
 
 type MiscAPI = "now" :> Get '[JSON] UTCTime
           :<|> "error" :> Get '[JSON] String
+          :<|> "print" :> Get '[JSON] NoContent
 
 miscServer :: Server MiscAPI
 miscServer = now
              :<|> error
+             :<|> printer
   where
         now :: Handler UTCTime
         now = liftIO getCurrentTime >>= return
         error :: Handler String
         error = throwError err404 { errBody = "a dinosaur ate the server" }
+        printer :: Handler NoContent
+        printer = do
+          liftIO $ putStrLn "printed!"
+          return NoContent
 
 --------------------------------------------------
 -- Reader API
 
 type ReaderAPI = Get '[JSON] String
-readerServerT :: ServerT ReaderAPI (Reader String)
-readerServerT = ask
+readerServerT :: ServerT ReaderAPI (Reader Config) -- (ReaderT (IO a) Config)
+readerServerT = do
+  pool <- asks getPool
+  --x    <- runSqlPool (rawSql "select now()" []) pool
+  return "hi"
+
+
 readerAPI :: Proxy ReaderAPI
 readerAPI = Proxy
 
-readerToHandler' :: forall a. Reader String a -> Handler a
-readerToHandler' r = return (runReader r "yes!")
-readerToHandler :: Reader String :~> Handler
-readerToHandler = Nat readerToHandler'
+readerToHandler' :: Config -> forall a. Reader Config a -> Handler a
+readerToHandler' cfg r = return (runReader r cfg)
+readerToHandler :: Config -> Reader Config :~> Handler
+readerToHandler cfg = Nat (readerToHandler' cfg)
 
-readerServer :: Server ReaderAPI
-readerServer = enter readerToHandler readerServerT
+readerServer :: Config -> Server ReaderAPI
+readerServer  cfg = enter (readerToHandler cfg) readerServerT
 
+--instance ToJSON Dbtime where
+selNow :: MonadIO m => ReaderT SqlBackend m [Single UTCTime]
+selNow = rawSql "select now()" []
+
+selNow' :: App [Single UTCTime]
+selNow' = runDb (rawSql "select now()" [])
+
+-- belongs in Models.hs ?
+runDb :: (MonadReader Config m, MonadIO m) => SqlPersistT IO b -> m b
+runDb query = do
+  pool <- asks getPool
+  liftIO $ runSqlPool query pool
+
+-- runDb' ::  ReaderT SqlBackend IO a -> IO a
+-- runDb' query = do
+--   pool <- asks getPool
+--   runSqlPool query pool
+  
 --------------------------------------------------
 -- Time API
 
@@ -166,10 +196,10 @@ type API auths = MiscAPI
                  :<|> Unprotected
                  
 
-server :: CookieSettings -> JWTSettings -> Server (API auths)
-server cs jwts = miscServer
+server :: Config -> CookieSettings -> JWTSettings -> Server (API auths)
+server cfg cs jwts = miscServer
                  :<|> timesServer
-                 :<|> readerServer
+                 :<|> readerServer cfg
                  :<|> protected
                  :<|> unprotected cs jwts
 
@@ -178,7 +208,8 @@ data Env = Development
          | Testing
          | Production
 
-data Config = Config { getPool :: ConnectionPool, getEnv :: Env }
+data Config = Config { getPool :: ConnectionPool
+                     , getEnv :: Env }
 
 connStr :: ConnectionString
 connStr = "host=localhost dbname=timetrack-test user=timetrack-test password=test port=5432"
@@ -188,15 +219,7 @@ makePool Development = runStdoutLoggingT $ createPostgresqlPool connStr 8
 makePool Testing     = undefined
 makePool Production  = undefined
 
---instance ToJSON Dbtime where
-selNow :: MonadIO m => ReaderT SqlBackend m [Single UTCTime]
-selNow = rawSql "select now()" []
 
--- belongs in Models.hs ?
-runDb :: (MonadReader Config m, MonadIO m) => SqlPersistT IO b -> m b
-runDb query = do
-  pool <- asks getPool
-  liftIO $ runSqlPool query pool
 
 newtype App a = App { runApp :: ReaderT Config (ExceptT ServantErr IO) a
                     } deriving (Functor, Applicative, Monad, MonadReader Config, MonadError ServantErr, MonadIO)
@@ -233,16 +256,15 @@ startApp = do
       jwtCfg = defaultJWTSettings myKey
       dbcfg = (Config connPool env)
       cfg = defaultCookieSettings
-        :. jwtCfg
-        :. dbcfg
-        :. EmptyContext
+         :. jwtCfg
+         :. EmptyContext
         
       api = Proxy :: Proxy (API '[JWT])
 
       app :: Application
       app = serveWithContext api
                              cfg
-                             (server defaultCookieSettings jwtCfg)
+                             (server dbcfg defaultCookieSettings jwtCfg)
 
   -- generate a valid test token
   etoken <- makeJWT (User "charizard" "pokemon.awesome@hotmail.com") jwtCfg Nothing
