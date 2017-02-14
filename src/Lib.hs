@@ -79,28 +79,28 @@ miscServer = now
         error :: Handler String
         error = throwError err404 { errBody = "a dinosaur ate the server" }
         printer :: Handler NoContent
-        printer = do
-          liftIO $ putStrLn "printed!"
-          return NoContent
+        printer = liftIO $ putStrLn "printed!" >> return NoContent
 
 --------------------------------------------------
 -- Reader API
 
-type ReaderAPI = Get '[JSON] String
-readerServerT :: ServerT ReaderAPI (Reader Config) -- (ReaderT (IO a) Config)
-readerServerT = do
-  pool <- asks getPool
-  --x    <- runSqlPool (rawSql "select now()" []) pool
-  return "hi"
+type ReaderAPI = Get '[JSON] UTCTime
+readerServerT :: ServerT ReaderAPI App -- (ReaderT (IO a) Config)
+readerServerT = f
+  where
+    f :: App UTCTime
+    f = do
+      x <- runDb selNow
+      return $ unSingle $ head x
 
 
 readerAPI :: Proxy ReaderAPI
 readerAPI = Proxy
 
-readerToHandler' :: Config -> forall a. Reader Config a -> Handler a
-readerToHandler' cfg r = return (runReader r cfg)
-readerToHandler :: Config -> Reader Config :~> Handler
-readerToHandler cfg = Nat (readerToHandler' cfg)
+-- readerToHandler' :: Config -> forall a. Reader Config a -> Handler a
+-- readerToHandler' cfg r = return (runReader r cfg)
+readerToHandler :: Config -> App :~> ExceptT ServantErr IO
+readerToHandler cfg = Nat (flip runReaderT cfg . runApp)
 
 readerServer :: Config -> Server ReaderAPI
 readerServer  cfg = enter (readerToHandler cfg) readerServerT
