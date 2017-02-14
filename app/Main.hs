@@ -1,3 +1,7 @@
 module Main where
 
-main =  undefined
+import Api (startApp)
+
+
+
+main = startApp

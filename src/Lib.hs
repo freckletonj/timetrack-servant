@@ -12,9 +12,8 @@
 -- NOTE : for Reader Monad see : https://github.com/haskell-servant/servant/blob/29f94a64408d6a7815dbe43fd06e8b372b3230e9/doc/tutorial/Server.lhs#L1104
 --
 
-module Lib
-    ( startApp
-    ) where
+module Lib where
+    
 
 import Data.Aeson
 import Data.Aeson.TH
@@ -51,6 +50,7 @@ import Database.Persist.Sql (rawSql, SqlPersistT, unSingle, Single)
 import Database.Persist.TH
 
 import Models
+import Config
 
 --------------------------------------------------
 -- Types
@@ -101,15 +101,6 @@ readerToHandler cfg = Nat (flip runReaderT cfg . runApp)
 readerServer :: Config -> Server ReaderAPI
 readerServer  cfg = enter (readerToHandler cfg) readerServerT
 
---instance ToJSON Dbtime where
-selNow :: MonadIO m => ReaderT SqlBackend m [Single UTCTime]
-selNow = rawSql "select now()" []
-
--- belongs in Models.hs ?
-runDb :: (MonadReader Config m, MonadIO m) => SqlPersistT IO b -> m b
-runDb query = do
-  pool <- asks getPool
-  liftIO $ runSqlPool query pool
 
 
 --------------------------------------------------
@@ -177,95 +168,3 @@ checkCreds _ _ _ = throwError err401
 
 --------------------------------------------------
 -- RUN
-
-type API auths = MiscAPI
-                 :<|> "times" :> TimesAPI
-                 :<|> "read" :> ReaderAPI
-                 :<|> (Auth auths User :> Protected)
-                 :<|> Unprotected
-                 
-
-server :: Config -> CookieSettings -> JWTSettings -> Server (API auths)
-server cfg cs jwts = miscServer
-                 :<|> timesServer
-                 :<|> readerServer cfg
-                 :<|> protected
-                 :<|> unprotected cs jwts
-
-
-data Env = Development
-         | Testing
-         | Production
-
-data Config = Config { getPool :: ConnectionPool
-                     , getEnv :: Env }
-
-connStr :: ConnectionString
-connStr = "host=localhost dbname=timetrack-test user=timetrack-test password=test port=5432"
-
-makePool :: Env -> IO ConnectionPool
-makePool Development = runStdoutLoggingT $ createPostgresqlPool connStr 8
-makePool Testing     = undefined
-makePool Production  = undefined
-
-
-
-newtype App a = App { runApp :: ReaderT Config (ExceptT ServantErr IO) a
-                    } deriving (Functor, Applicative, Monad, MonadReader Config, MonadError ServantErr, MonadIO)
-
-allTimeEntries :: App [Entity TimeEntry]
-allTimeEntries = runDb (selectList [] [])
-
--- userApp :: a -> Config -> Application
--- userApp jwtCfg cfg = serve (Proxy :: Proxy (API '[JWT])) (appToServer jwtCfg cfg)
-
--- appToServer :: a -> Config -> Server (API '[JWT])
--- appToServer jwtCfg cfg = enter (convertApp cfg) (server defaultCookieSettings jwtCfg)
-
--- convertApp :: Config -> App :~> ExceptT ServantErr IO
--- convertApp cfg = Nat (flip runReaderT cfg . runApp)
-
--- for static assets
-files :: Application
-files = serveDirectory "assets"
-
-
-startApp :: IO ()
-startApp = do
-  -- This Db IO happens outside of servant
-  runStdoutLoggingT $ withPostgresqlPool connStr 10 $ liftSqlPersistMPool $ do
-    x <- selNow
-    liftIO (print x)
-
-  -- Db for use _inside_ servant
-  connPool <- runStdoutLoggingT $ createPostgresqlPool connStr 8
-  
-  myKey <- generateKey
-  let env = Development
-      dbcfg = (Config connPool env)
-      
-      jwtCfg = defaultJWTSettings myKey
-      cfg = defaultCookieSettings
-         :. jwtCfg
-         :. EmptyContext
-        
-      api = Proxy :: Proxy (API '[JWT])
-
-      app :: Application
-      app = serveWithContext api
-                             cfg
-                             (server dbcfg defaultCookieSettings jwtCfg)
-
-  -- generate a valid test token
-  etoken <- makeJWT (User "charizard" "pokemon.awesome@hotmail.com") jwtCfg Nothing
-  case etoken of
-    Left e -> putStrLn $ "Error generating token: " ++ show e 
-    Right v -> putStrLn $ "try this: " ++ "curl -H \"Authorization: Bearer " ++ show v ++ "\" localhost:8080/name -v"
-    
-  run 8080 app
-
--- outputs something like the following, before starting the server:
--- curl -H "Authorization: Bearer "eyJhbGciOiJIUzI1NiJ9.eyJkYXQiOnsiZW1haWwiOiJjaGFyaXphcmQuYXdlc29tZUBob3RtYWlsLmNvbSIsIm5hbWUiOiJjaGFyaXphcmQifX0.t-VlSuSZi6l67uguOEZXDBkcMkxMvDx-f8sRVMPy-O8"" localhost:8080/name -v
-
-
-
