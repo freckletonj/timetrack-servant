@@ -33,6 +33,9 @@ import Servant.Auth.Server
 import Servant.Auth.Server.SetCookieOrphan ()
 
 import Database.Persist.Postgresql (runSqlPool
+                                   , insert
+                                   , delete
+                                   , deleteWhere
                                    , ConnectionPool
                                    , ConnectionString
                                    , createPostgresqlPool
@@ -102,17 +105,24 @@ readerServer  cfg = enter (readerToHandler cfg) readerServerT
 --------------------------------------------------
 -- Time API
 
+-- {"clockin": "2013-10-17T09:42:49.007Z",
+-- "description": "first success"}
+
 type TimesAPI = Get '[JSON] [Entity TimeEntry] -- list all
-                -- :<|> Capture "timeid" Int :> Get '[JSON] TimeEntry -- get one
+                :<|> ReqBody '[JSON] TimeEntry :> PostNoContent '[JSON] NoContent
+                :<|> Capture "timeid" Int :> Get '[JSON] (Entity TimeEntry) -- get one
                 -- :<|> 
 
 timesServerT :: ServerT TimesAPI App
 timesServerT = listTimes
-              -- :<|> getTime
+               :<|> putTime
+               :<|> getTime
   where listTimes :: App [Entity TimeEntry]
         listTimes = runDb (selectList [] []) >>= return
-        -- getTime :: Int -> Handler TimeEntry
-        -- getTime i = return $ head $ filter (\t -> timeid t == i) times
+        putTime :: TimeEntry -> App NoContent
+        putTime te = runDb (insert te) >> return NoContent
+        getTime :: Int -> App (Entity TimeEntry)
+        getTime i = runDb (selectList [] []) >>= return . head
 
 timesServerToHandler :: Config -> App :~> ExceptT ServantErr IO
 timesServerToHandler cfg = Nat (flip runReaderT cfg . runApp)
