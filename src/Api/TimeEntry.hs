@@ -111,18 +111,25 @@ readerServer  cfg = enter (readerToHandler cfg) readerServerT
 -- {"clockin": "2013-10-17T09:42:49.007Z",
 -- "description": "first success"}
 
-type TimesAPI = Get '[JSON] [Entity TimeEntry] -- list all
-                :<|> ReqBody '[JSON] TimeEntry :> Post '[JSON] (Key TimeEntry) -- add a new one
-                :<|> Capture "timeid" (Key TimeEntry) :> Get '[JSON] (Maybe TimeEntry) -- get one
-                :<|> Capture "timeid" (Key TimeEntry) :> ReqBody '[JSON] TimeEntry :> PutNoContent '[JSON] NoContent -- replace one
-                :<|> Capture "timeid" (Key TimeEntry) :> DeleteNoContent '[JSON] NoContent
+type TimesAPI = Get '[JSON] [Entity TimeEntry]           -- list all
+                :<|> ReqBody '[JSON] TimeEntry
+                     :> Post '[JSON] (Key TimeEntry)     -- add a new one
+                :<|> Capture "timeid" (Key TimeEntry) :> 
+                (
+                  Get '[JSON] (Maybe TimeEntry)          -- get one
+                  :<|> ReqBody '[JSON] TimeEntry
+                       :> PutNoContent '[JSON] NoContent -- replace one
+                  :<|> DeleteNoContent '[JSON] NoContent -- delete one
+                )
 
 timesServerT :: ServerT TimesAPI App
 timesServerT = listTimes
                :<|> putTime
-               :<|> getTime
-               :<|> updateTime
-               :<|> deleteTime
+               :<|> (\i ->
+                       getTime i
+                       :<|> updateTime i
+                       :<|> deleteTime i
+                    )
   where listTimes :: App [Entity TimeEntry]
         listTimes = runDb (selectList [] []) >>= return
         putTime :: TimeEntry -> App (Key TimeEntry)
