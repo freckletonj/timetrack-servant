@@ -59,7 +59,7 @@ type API auths = MiscAPI
                  :<|> "times" :> TimesAPI
                  :<|> "read" :> ReaderAPI
                  :<|> (Auth auths User :> Protected)
-                 :<|> Unprotected
+                 -- :<|> Unprotected
                  
 
 server :: Config -> CookieSettings -> JWTSettings -> Server (API auths)
@@ -67,7 +67,7 @@ server cfg cs jwts = miscServer
                  :<|> timesServer cfg
                  :<|> readerServer cfg
                  :<|> protected
-                 :<|> unprotected cs jwts
+                 -- :<|> unprotected cs jwts
 
 
 startApp :: IO ()
@@ -96,10 +96,10 @@ startApp = do
   runSqlPool doMigrations connPool
 
   -- generate a valid test token, for testing by hand
-  etoken <- makeJWT (User "charizard" "pokemon.awesome@hotmail.com") jwtCfg Nothing
-  case etoken of
-    Left e -> putStrLn $ "Error generating token: " ++ show e 
-    Right v -> putStrLn $ "try this: " ++ "curl -H \"Authorization: Bearer " ++ show v ++ "\" localhost:8080/name -v"
+  -- etoken <- makeJWT (User "charizard" "pokemon.awesome@hotmail.com") jwtCfg Nothing
+  -- case etoken of
+  --   Left e -> putStrLn $ "Error generating token: " ++ show e 
+  --   Right v -> putStrLn $ "try this: " ++ "curl -H \"Authorization: Bearer " ++ show v ++ "\" localhost:8080/name -v"
     
   run 8081 app
 

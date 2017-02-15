@@ -1,3 +1,9 @@
+# TODO
+
+- serving files
+- user signup/login
+- user owning of timeentries
+
 # Structure
 
 - app/
@@ -10,3 +16,4 @@
     - Config.hs
 - test/
     - 
+

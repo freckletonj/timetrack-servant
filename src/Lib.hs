@@ -53,7 +53,7 @@ import Models
 import Config
 
 
-
+{-
 data User = User { name :: String, email :: String }
    deriving (Eq, Show, Read, Generic)
 
@@ -77,3 +77,4 @@ checkCreds cookieSettings jwtSettings (Login "Ali Baba" "Open Sesame") = do
      Nothing     -> throwError err401
      Just cookie -> return $ addHeader cookie $ show cookie
 checkCreds _ _ _ = throwError err401
+-}

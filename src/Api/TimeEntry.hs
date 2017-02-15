@@ -55,56 +55,6 @@ import Models
 import Config
 import Lib
 
-
---------------------------------------------------
--- Types
-
--- types imported from Models
-
-times :: [TimeEntry]
-times = [ TimeEntry (posixSecondsToUTCTime 0) (Just $ posixSecondsToUTCTime 1) "first"
-        , TimeEntry (posixSecondsToUTCTime 2) Nothing "second"]
-
---------------------------------------------------
--- Misc API
-
-type MiscAPI = "nowIO" :> Get '[JSON] UTCTime
-          :<|> "error" :> Get '[JSON] String
-          :<|> "printIO" :> Get '[JSON] NoContent
-
-miscServer :: Server MiscAPI
-miscServer = now
-             :<|> error
-             :<|> printer
-  where
-        now :: Handler UTCTime
-        now = liftIO getCurrentTime >>= return
-        error :: Handler String
-        error = throwError err404 { errBody = "a dinosaur ate the server" }
-        printer :: Handler NoContent
-        printer = liftIO $ putStrLn "printed!" >> return NoContent
-
---------------------------------------------------
--- ReaderMonad API
-
-type ReaderAPI = Get '[JSON] UTCTime
-readerServerT :: ServerT ReaderAPI App
-readerServerT = f
-  where
-    f :: App UTCTime
-    f = runDb selNow >>= return . unSingle . head
-
-readerAPI :: Proxy ReaderAPI
-readerAPI = Proxy
-
-readerToHandler :: Config -> App :~> ExceptT ServantErr IO
-readerToHandler cfg = Nat (flip runReaderT cfg . runApp)
-
-readerServer :: Config -> Server ReaderAPI
-readerServer  cfg = enter (readerToHandler cfg) readerServerT
-
-
-
 --------------------------------------------------
 -- Time API
 
@@ -147,12 +97,30 @@ timesServerToHandler cfg = Nat (flip runReaderT cfg . runApp)
 timesServer :: Config -> Server TimesAPI
 timesServer cfg = enter (timesServerToHandler cfg) timesServerT
 
+
+
+
+--------------------------------------------------------------------------------
+--------------------------------------------------------------------------------
+--------------------------------------------------------------------------------
+-- THIS STUFF IS JUST FOR REFERENCE, AND ISNT REALLY USED ANYWHERE
+--------------------------------------------------------------------------------
+--------------------------------------------------------------------------------
+--------------------------------------------------------------------------------
+
+
+
 --------------------------------------------------
 -- Auth API
-
 type Protected
-    = "name"  :> Get '[JSON] String
- :<|> "email" :> Get '[JSON] String
+    = "email"  :> Get '[JSON] String
+-- :<|> "email" :> Get '[JSON] String
+protected :: AuthResult User -> Server Protected
+protected (Authenticated user) = return (userEmail user)
+protected _ = throwAll err401
+
+
+{-
 
 type Unprotected =
  "login"
@@ -160,17 +128,51 @@ type Unprotected =
      :> Post '[JSON] (Headers '[Header "Set-Cookie" SetCookie] String)
   :<|> Raw
 
-protected :: AuthResult User -> Server Protected
-protected (Authenticated user) = return (name user) :<|> return (email user)
-protected _ = throwAll err401
-
 unprotected :: CookieSettings -> JWTSettings -> Server Unprotected
 unprotected cs jwts = checkCreds cs jwts
                  :<|> serveDirectory "example/static" 
-
+-}
 
 -- for static assets
 files :: Application
 files = serveDirectory "assets"
 
+
+--------------------------------------------------
+-- Misc API
+
+type MiscAPI = "nowIO" :> Get '[JSON] UTCTime
+          :<|> "error" :> Get '[JSON] String
+          :<|> "printIO" :> Get '[JSON] NoContent
+
+miscServer :: Server MiscAPI
+miscServer = now
+             :<|> error
+             :<|> printer
+  where
+        now :: Handler UTCTime
+        now = liftIO getCurrentTime >>= return
+        error :: Handler String
+        error = throwError err404 { errBody = "a dinosaur ate the server" }
+        printer :: Handler NoContent
+        printer = liftIO $ putStrLn "printed!" >> return NoContent
+
+--------------------------------------------------
+-- ReaderMonad API
+
+type ReaderAPI = Get '[JSON] UTCTime
+readerServerT :: ServerT ReaderAPI App
+readerServerT = f
+  where
+    f :: App UTCTime
+    f = runDb selNow >>= return . unSingle . head
+
+readerAPI :: Proxy ReaderAPI
+readerAPI = Proxy
+
+readerToHandler :: Config -> App :~> ExceptT ServantErr IO
+readerToHandler cfg = Nat (flip runReaderT cfg . runApp)
+
+readerServer :: Config -> Server ReaderAPI
+readerServer  cfg = enter (readerToHandler cfg) readerServerT
 
