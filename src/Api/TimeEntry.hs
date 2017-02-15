@@ -33,8 +33,11 @@ import Servant.Auth.Server
 import Servant.Auth.Server.SetCookieOrphan ()
 
 import Database.Persist.Postgresql (runSqlPool
+                                   , get
                                    , insert
                                    , delete
+                                   , update
+                                   , replace
                                    , deleteWhere
                                    , ConnectionPool
                                    , ConnectionString
@@ -109,20 +112,27 @@ readerServer  cfg = enter (readerToHandler cfg) readerServerT
 -- "description": "first success"}
 
 type TimesAPI = Get '[JSON] [Entity TimeEntry] -- list all
-                :<|> ReqBody '[JSON] TimeEntry :> PostNoContent '[JSON] NoContent
-                :<|> Capture "timeid" Int :> Get '[JSON] (Entity TimeEntry) -- get one
-                -- :<|> 
+                :<|> ReqBody '[JSON] TimeEntry :> Post '[JSON] (Key TimeEntry) -- add a new one
+                :<|> Capture "timeid" (Key TimeEntry) :> Get '[JSON] (Maybe TimeEntry) -- get one
+                :<|> Capture "timeid" (Key TimeEntry) :> ReqBody '[JSON] TimeEntry :> PutNoContent '[JSON] NoContent -- replace one
+                :<|> Capture "timeid" (Key TimeEntry) :> DeleteNoContent '[JSON] NoContent
 
 timesServerT :: ServerT TimesAPI App
 timesServerT = listTimes
                :<|> putTime
                :<|> getTime
+               :<|> updateTime
+               :<|> deleteTime
   where listTimes :: App [Entity TimeEntry]
         listTimes = runDb (selectList [] []) >>= return
-        putTime :: TimeEntry -> App NoContent
-        putTime te = runDb (insert te) >> return NoContent
-        getTime :: Int -> App (Entity TimeEntry)
-        getTime i = runDb (selectList [] []) >>= return . head
+        putTime :: TimeEntry -> App (Key TimeEntry)
+        putTime te = runDb (insert te) >>= return
+        getTime :: (Key TimeEntry) -> App (Maybe TimeEntry)
+        getTime i = runDb (get i) >>= return
+        updateTime :: (Key TimeEntry) -> TimeEntry -> App NoContent
+        updateTime i te = runDb (replace i te) >> return NoContent
+        deleteTime :: (Key TimeEntry) -> App NoContent
+        deleteTime i = runDb (delete i) >> return NoContent
 
 timesServerToHandler :: Config -> App :~> ExceptT ServantErr IO
 timesServerToHandler cfg = Nat (flip runReaderT cfg . runApp)
