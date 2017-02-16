@@ -54,20 +54,24 @@ import Config
 import Lib
 
 import Api.TimeEntry
+import Api.User
 
-type API auths = MiscAPI
-                 :<|> "times" :> TimesAPI
-                 :<|> "read" :> ReaderAPI
+type API auths =      "times" :> (Auth auths User :> TimesAPI)
+                 :<|> "users" :> UserAPI
                  :<|> (Auth auths User :> Protected)
                  -- :<|> Unprotected
+                 :<|> Raw
                  
 
+files :: Application
+files = serveDirectory "assets"
+
 server :: Config -> CookieSettings -> JWTSettings -> Server (API auths)
-server cfg cs jwts = miscServer
-                 :<|> timesServer cfg
-                 :<|> readerServer cfg
-                 :<|> protected
-                 -- :<|> unprotected cs jwts
+server cfg cs jwts = timesServer cfg
+                     :<|> userServer cfg
+                     :<|> protected
+                     -- :<|> unprotected cs jwts
+                     :<|> files
 
 
 startApp :: IO ()
@@ -76,7 +80,7 @@ startApp = do
   -- Db for use _inside_ servant
   connPool <- runStdoutLoggingT $ createPostgresqlPool connStr 8
 
-  myKey <- generateKey
+  myKey <- generateKey -- Crypto JOSE
   let env = Development
       dbcfg = (Config connPool env)
       
@@ -105,7 +109,6 @@ startApp = do
 
 -- outputs something like the following, before starting the server:
 -- curl -H "Authorization: Bearer "eyJhbGciOiJIUzI1NiJ9.eyJkYXQiOnsiZW1haWwiOiJjaGFyaXphcmQuYXdlc29tZUBob3RtYWlsLmNvbSIsIm5hbWUiOiJjaGFyaXphcmQifX0.t-VlSuSZi6l67uguOEZXDBkcMkxMvDx-f8sRVMPy-O8"" localhost:8080/name -v
-
 
 
 

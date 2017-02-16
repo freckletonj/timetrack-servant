@@ -51,10 +51,4 @@ runDb query = do
   pool <- asks getPool
   liftIO $ runSqlPool query pool
 
-selNow :: MonadIO m => ReaderT SqlBackend m [Single UTCTime]
-selNow = rawSql "select now()" []
-
-allTimeEntries :: App [Entity TimeEntry]
-allTimeEntries = runDb (selectList [] [])
-
 

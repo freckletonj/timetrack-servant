@@ -15,12 +15,20 @@ cabal-version:       >=1.10
 
 library
   hs-source-dirs:      src
+
+  -- modules directly needed by Main
   exposed-modules:     Lib
+                     , Api
+  -- modules not needed in Main, and which should not be public
+  other-modules:  Config
+                , Models
+                , Api.TimeEntry
+                , Api.User
   build-depends:       base >= 4.7 && < 5
                      , aeson
-                     , servant-server
+                     , servant-server 
                      , servant-auth
-                     , servant-auth-server
+                     , servant-auth-server == 0.2.1.0
                      , servant-auth-client
                      , servant-auth-docs
                      -- , jose
@@ -45,6 +53,7 @@ library
 executable timetrack-servant-exe
   hs-source-dirs:      app
   main-is:             Main.hs
+    
   ghc-options:         -threaded -rtsopts -with-rtsopts=-N
   build-depends:       base
                      , timetrack-servant
