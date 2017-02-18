@@ -24,7 +24,7 @@ import Data.Time.Clock.POSIX  (posixSecondsToUTCTime)
 import Data.Typeable          (Typeable)
 
 import Control.Monad.IO.Class (liftIO)
-import Control.Monad.Logger   (runStdoutLoggingT)
+import Control.Monad.Logger   (runStdoutLoggingT, MonadLogger)
 import Control.Monad.Reader
 import Control.Monad.Except   (ExceptT, MonadError)
 

@@ -22,7 +22,7 @@ import Data.Time.Clock.POSIX  (posixSecondsToUTCTime)
 import Data.Typeable          (Typeable)
 
 import Control.Monad.IO.Class (liftIO)
-import Control.Monad.Logger   (runStdoutLoggingT)
+import Control.Monad.Logger   (runStdoutLoggingT, logError)
 import Control.Monad.Reader
 import Control.Monad.Except   (ExceptT, MonadError)
 
@@ -94,39 +94,21 @@ returnJwt jwts obj = do
             (Just expiry)
   return $ etoken
   
-  -- case etoken of
-  --   Left e -> error . show $ e
-  --   Right v -> return . B.unpack . BL.toStrict $ v
-
 loginServerT :: JWTSettings -> ServerT LoginAPI App
 loginServerT jwts = login :<|> new
   where
     login :: UnsafeLogin -> App String
     login (UnsafeLogin email p) = do
-      -- turn string into key
+      k <- return (keyFromValues [PersistText $ pack email])
+      k' <- either (const $ throwError err401) return k
       
-      case (keyFromValues [PersistText $ pack email]) of -- :: Either Text (Key Login)
-        Left _ -> throwError err500
-        Right k -> do
-          mu <- (runDb (get k)) :: (App (Maybe Login))
+      mu <- (runDb (get k'))
+      (Login _ hp) <- maybe (throwError err401) return mu
 
-          -- fetch user
-          case maybe (Left $ pack "couldn't find user") Right mu of
-            Left _ -> throwError err401
-            Right (Login _ hp) ->
+      if validatePassword (B.pack p) (B.pack hp) then return () else throwError err401
+      etoken <- liftIO (returnJwt jwts (User email Nothing Nothing))
+      either (\_ -> throwError err401) (return . B.unpack . BL.toStrict) etoken
 
-              -- validate password
-              case (if validatePassword (B.pack p) (B.pack hp)
-                then Right ()
-                else Left "wrong pass") of
-                Left _ -> throwError err401
-                Right _ -> do
-
-                  -- build etoken
-                  etoken <- liftIO (returnJwt jwts (User email Nothing Nothing))
-                  case bimap (pack . show) (B.unpack . BL.toStrict) etoken of
-                    Left _ -> throwError err401
-                    Right x -> return x
 
     new :: UnsafeLogin -> App (Key Login)
     new (UnsafeLogin e p) = do
@@ -138,30 +120,7 @@ loginServerT jwts = login :<|> new
 maybeToEither :: err -> Maybe a -> Either err a
 maybeToEither = flip maybe Right . Left
 
---instance MonadIO (Either a) where
---instance MonadReader r m => MonadReader r (Either a) where
-  
-loginServerT' :: JWTSettings -> ServerT LoginAPI App
-loginServerT' jwts = login :<|> new
-  where
-    new = undefined
-    login :: UnsafeLogin -> App String
-    login (UnsafeLogin email p) = eitherT (\_ -> throwError err401) return $
 
-        hoistEither (keyFromValues [PersistText $ pack email])
-        >>=
-        (\k -> do
-            mu <- fmap (maybeToEither "could'nt find em") (runDb (get k))
-            hoistEither mu
-        ) 
-          
-        >>= 
-        (\(Login _ hp) -> hoistEither (if validatePassword (B.pack p) (B.pack hp)
-                                       then Right ()
-                                       else Left "wrong pass"))
-        >>  (do
-               etoken <- liftIO (returnJwt jwts (User email Nothing Nothing))
-               bimapEitherT (pack . show) (B.unpack . BL.toStrict) (hoistEither etoken))
            
   
               
