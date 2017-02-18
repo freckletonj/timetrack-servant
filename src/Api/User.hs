@@ -71,40 +71,44 @@ type LoginAPI = "login" :> ReqBody '[JSON] UnsafeLogin
               :<|> "new" :> ReqBody '[JSON] UnsafeLogin
                          :> Post '[JSON] (Key Login)
 
+-- TODO: belongs in config
 hashIterations = 12 -- 15 =~ 6 sec
 tokenDuration = 60*60*24*30 -- one month, TODO: make revokable, expiration works, but can't be revoked that way
+
+returnJwt :: (MonadIO m) => JWTSettings -> String -> m String
+returnJwt jwts email = do
+  -- generate JWT
+  now <- liftIO $ getCurrentTime
+  let expiry = addUTCTime tokenDuration now
+  etoken <- liftIO $ makeJWT (User email Nothing Nothing)
+            jwts
+            (Just expiry)
+  case etoken of
+    Left e -> return  . error . show $ e
+    Right v -> return . B.unpack . BL.toStrict $ v
 
 loginServerT :: JWTSettings -> ServerT LoginAPI App
 loginServerT jwts = login :<|> new
   where
     login :: UnsafeLogin -> App String
-    login (UnsafeLogin e p) = do
+    login (UnsafeLogin email p) = do
       -- turn string into key
-      case (keyFromValues [PersistText $ pack e]) of 
-        Left e -> error $ unpack e -- shouldn't happen
+      case (keyFromValues [PersistText $ pack email]) of 
+        Left _ -> throwError err500
         Right k -> do
           mu <- (runDb (get k)) :: (App (Maybe Login))
 
           -- fetch user
-          case maybe (Left "wrong username or pass") Right mu of
-            Left e -> error e -- couldn't find user
-            Right (Login _ hp) -> do
-
+          case maybe (Left ()) Right mu of
+            Left _ -> throwError err401
+            Right (Login _ hp) ->
               -- validate password
-              if validatePassword (B.pack p) (B.pack hp)
-              then do
 
-                -- generate JWT
-                now <- liftIO $ getCurrentTime
-                let expiry = addUTCTime tokenDuration now
-                etoken <- liftIO $ makeJWT (User e Nothing Nothing)
-                                           jwts
-                                           (Just expiry)
-                case etoken of
-                  Left e -> return . error . show $ e
-                  Right v -> return . B.unpack . BL.toStrict $ v
-              else return "fail"
+              (if validatePassword (B.pack p) (B.pack hp)
+                then (returnJwt jwts email)
+                else throwError err401)
 
+              
     new :: UnsafeLogin -> App (Key Login)
     new (UnsafeLogin e p) = do
       k <- runDb . insert $ (User e Nothing Nothing)
