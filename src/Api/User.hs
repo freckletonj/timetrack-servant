@@ -1,3 +1,6 @@
+{-# LANGUAGE MultiParamTypeClasses #-}
+{-# LANGUAGE FlexibleInstances #-}
+
 {-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE DataKinds         #-}
@@ -58,6 +61,10 @@ import Crypto.KDF.BCrypt (hashPassword, validatePassword)
 import qualified Data.ByteString.Char8 as B
 import qualified Data.ByteString.Lazy as BL
 
+-- import Control.Arrow (left)
+import Data.Bifunctor
+import Control.Monad.Trans.Either
+
 import Models
 import Config
 import Lib
@@ -65,6 +72,8 @@ import Lib
 data UnsafeLogin = UnsafeLogin { email :: String
                                , clearPass :: String} deriving (Generic)
 instance FromJSON UnsafeLogin
+
+
 
 type LoginAPI = "login" :> ReqBody '[JSON] UnsafeLogin
                         :> Post '[JSON] (String)
@@ -75,17 +84,19 @@ type LoginAPI = "login" :> ReqBody '[JSON] UnsafeLogin
 hashIterations = 12 -- 15 =~ 6 sec
 tokenDuration = 60*60*24*30 -- one month, TODO: make revokable, expiration works, but can't be revoked that way
 
-returnJwt :: (MonadIO m) => JWTSettings -> String -> m String
-returnJwt jwts email = do
+-- returnJwt :: JWTSettings -> String -> IO (Either Error BL.ByteString)
+returnJwt jwts obj = do
   -- generate JWT
-  now <- liftIO $ getCurrentTime
+  now <- getCurrentTime
   let expiry = addUTCTime tokenDuration now
-  etoken <- liftIO $ makeJWT (User email Nothing Nothing)
+  etoken <- makeJWT obj
             jwts
             (Just expiry)
-  case etoken of
-    Left e -> return  . error . show $ e
-    Right v -> return . B.unpack . BL.toStrict $ v
+  return $ etoken
+  
+  -- case etoken of
+  --   Left e -> error . show $ e
+  --   Right v -> return . B.unpack . BL.toStrict $ v
 
 loginServerT :: JWTSettings -> ServerT LoginAPI App
 loginServerT jwts = login :<|> new
@@ -93,28 +104,68 @@ loginServerT jwts = login :<|> new
     login :: UnsafeLogin -> App String
     login (UnsafeLogin email p) = do
       -- turn string into key
-      case (keyFromValues [PersistText $ pack email]) of 
+      
+      case (keyFromValues [PersistText $ pack email]) of -- :: Either Text (Key Login)
         Left _ -> throwError err500
         Right k -> do
           mu <- (runDb (get k)) :: (App (Maybe Login))
 
           -- fetch user
-          case maybe (Left ()) Right mu of
+          case maybe (Left $ pack "couldn't find user") Right mu of
             Left _ -> throwError err401
             Right (Login _ hp) ->
+
               -- validate password
+              case (if validatePassword (B.pack p) (B.pack hp)
+                then Right ()
+                else Left "wrong pass") of
+                Left _ -> throwError err401
+                Right _ -> do
 
-              (if validatePassword (B.pack p) (B.pack hp)
-                then (returnJwt jwts email)
-                else throwError err401)
+                  -- build etoken
+                  etoken <- liftIO (returnJwt jwts (User email Nothing Nothing))
+                  case bimap (pack . show) (B.unpack . BL.toStrict) etoken of
+                    Left _ -> throwError err401
+                    Right x -> return x
 
-              
     new :: UnsafeLogin -> App (Key Login)
     new (UnsafeLogin e p) = do
       k <- runDb . insert $ (User e Nothing Nothing)
       hashed <- liftIO $ hashPassword hashIterations (B.pack p)
       k' <- runDb . insert $ (Login e $ B.unpack hashed)
       return k'
+
+maybeToEither :: err -> Maybe a -> Either err a
+maybeToEither = flip maybe Right . Left
+
+--instance MonadIO (Either a) where
+--instance MonadReader r m => MonadReader r (Either a) where
+  
+loginServerT' :: JWTSettings -> ServerT LoginAPI App
+loginServerT' jwts = login :<|> new
+  where
+    new = undefined
+    login :: UnsafeLogin -> App String
+    login (UnsafeLogin email p) = eitherT (\_ -> throwError err401) return $
+
+        hoistEither (keyFromValues [PersistText $ pack email])
+        >>=
+        (\k -> do
+            mu <- fmap (maybeToEither "could'nt find em") (runDb (get k))
+            hoistEither mu
+        ) 
+          
+        >>= 
+        (\(Login _ hp) -> hoistEither (if validatePassword (B.pack p) (B.pack hp)
+                                       then Right ()
+                                       else Left "wrong pass"))
+        >>  (do
+               etoken <- liftIO (returnJwt jwts (User email Nothing Nothing))
+               bimapEitherT (pack . show) (B.unpack . BL.toStrict) (hoistEither etoken))
+           
+  
+              
+
 
 loginServerToHandler :: Config -> App :~> ExceptT ServantErr IO
 loginServerToHandler cfg = Nat (flip runReaderT cfg . runApp)
@@ -163,4 +214,29 @@ userServer :: Config -> Server UserAPI
 userServer cfg = enter (userServerToHandler cfg) userServerT
 
 
+-- Reduction of the Login Problem
+-- :: Int -> Either String Int
+f = (\x -> if x>0          then Right x else Left "too small")
+g = (\x -> if x<100        then Right x else Left "too big")
+h = (\x -> if rem x 2 == 0 then Right x else Left "no odds")
 
+thing :: (MonadIO m) => m String
+thing = do
+  a <- fmap read $ liftIO getLine
+  case f a of
+    Left x -> error x
+    Right b ->
+      case g b of
+        Left x -> error x
+        Right c ->
+          case h c of
+            Left x -> error x
+            Right d ->
+              return $ show . (+1) $ d
+              
+thing' :: (MonadIO m) => m String
+thing' = do
+  a <- fmap read $ liftIO getLine
+  case (f a) >>= g >>= h of
+    Left e -> error e
+    Right x -> return $ show x
