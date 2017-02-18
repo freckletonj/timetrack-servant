@@ -70,7 +70,7 @@ files = serveDirectory "assets"
 server :: Config -> CookieSettings -> JWTSettings -> Server (API auths)
 server cfg cs jwts = timesServer cfg
                      :<|> userServer cfg
-                     :<|> loginServer cfg
+                     :<|> loginServer jwts cfg
                      :<|> protected
                      -- :<|> unprotected cs jwts
                      :<|> files

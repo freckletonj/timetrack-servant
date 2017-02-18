@@ -13,7 +13,8 @@ module Api.User where
 import Data.Aeson
 import Data.Aeson.TH
 import Data.Text              (Text, pack, unpack)
-import Data.Time              (UTCTime, getCurrentTime)
+import Data.Text.Encoding     (decodeASCII)
+import Data.Time              (UTCTime, getCurrentTime, addUTCTime)
 import Data.Time.Clock.POSIX  (posixSecondsToUTCTime)
 import Data.Typeable          (Typeable)
 
@@ -55,6 +56,7 @@ import Database.Persist.TH
 
 import Crypto.KDF.BCrypt (hashPassword, validatePassword)
 import qualified Data.ByteString.Char8 as B
+import qualified Data.ByteString.Lazy as BL
 
 import Models
 import Config
@@ -70,22 +72,38 @@ type LoginAPI = "login" :> ReqBody '[JSON] UnsafeLogin
                          :> Post '[JSON] (Key Login)
 
 hashIterations = 12 -- 15 =~ 6 sec
+tokenDuration = 60*60*24*30 -- one month, TODO: make revokable, expiration works, but can't be revoked that way
 
-loginServerT :: ServerT LoginAPI App
-loginServerT = login :<|> new
+loginServerT :: JWTSettings -> ServerT LoginAPI App
+loginServerT jwts = login :<|> new
   where
     login :: UnsafeLogin -> App String
     login (UnsafeLogin e p) = do
-        case (keyFromValues [PersistText $ pack e]) of
-          Left e -> error $ unpack e -- shouldn't happen
-          Right k -> do
-            mu <- (runDb (get k)) :: (App (Maybe Login))
-            case mu of
-              Nothing -> error "wrong username or pass" -- couldn't find user
-              Just (Login _ hp) -> do
-                if validatePassword (B.pack p) (B.pack hp)
-                then return "success"
-                else return "fail"
+      -- turn string into key
+      case (keyFromValues [PersistText $ pack e]) of 
+        Left e -> error $ unpack e -- shouldn't happen
+        Right k -> do
+          mu <- (runDb (get k)) :: (App (Maybe Login))
+
+          -- fetch user
+          case maybe (Left "wrong username or pass") Right mu of
+            Left e -> error e -- couldn't find user
+            Right (Login _ hp) -> do
+
+              -- validate password
+              if validatePassword (B.pack p) (B.pack hp)
+              then do
+
+                -- generate JWT
+                now <- liftIO $ getCurrentTime
+                let expiry = addUTCTime tokenDuration now
+                etoken <- liftIO $ makeJWT (User e Nothing Nothing)
+                                           jwts
+                                           (Just expiry)
+                case etoken of
+                  Left e -> return . error . show $ e
+                  Right v -> return . B.unpack . BL.toStrict $ v
+              else return "fail"
 
     new :: UnsafeLogin -> App (Key Login)
     new (UnsafeLogin e p) = do
@@ -97,8 +115,8 @@ loginServerT = login :<|> new
 loginServerToHandler :: Config -> App :~> ExceptT ServantErr IO
 loginServerToHandler cfg = Nat (flip runReaderT cfg . runApp)
 
-loginServer :: Config -> Server LoginAPI
-loginServer cfg = enter (loginServerToHandler cfg) loginServerT
+loginServer :: JWTSettings -> Config -> Server LoginAPI
+loginServer jwts cfg = enter (loginServerToHandler cfg) (loginServerT jwts)
 
 
 
