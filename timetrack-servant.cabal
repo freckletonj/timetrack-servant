@@ -44,8 +44,9 @@ library
 
                      , monad-logger
                      , mtl
-                     , transformers
-                       , bytestring
+                     -- , transformers
+                     , bytestring
+                     , cryptonite
                        
 
   default-language:    Haskell2010

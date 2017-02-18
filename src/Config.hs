@@ -59,7 +59,7 @@ data Config = Config { getPool :: ConnectionPool
                      , getEnv :: Env }
 
 connStr :: ConnectionString
-connStr = "host=localhost dbname=timetrack-test user=timetrack-test password=test port=5432"
+connStr = "host=localhost dbname=timetrack-dev user=timetrack-dev password=pass port=5432"
 
 makePool :: Env -> IO ConnectionPool
 makePool Development = runStdoutLoggingT $ createPostgresqlPool connStr 8

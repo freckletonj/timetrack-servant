@@ -26,17 +26,27 @@ import Servant.Auth.Server.SetCookieOrphan ()
 import Config
 
 share [mkPersist sqlSettings, mkMigrate "migrateAll"] [persistLowerCase|
+User json
+  email     String
+  firstName String Maybe
+  lastName  String Maybe
+  Primary   email
+  deriving Show
+  
+Login json
+  userEmail String
+  passHash  String
+  Foreign   User fkuser userEmail
+  Primary   userEmail
+
 TimeEntry json
-  userId       UserId
+  userEmail    String
   clockin      UTCTime
   clockout     UTCTime Maybe
   description  String
+  Foreign      User fkuser userEmail
   deriving Show
 
-User json
-  firstName String Maybe
-  lastName  String Maybe
-  email     String
   
 |]
 

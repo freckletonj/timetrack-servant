@@ -33,6 +33,8 @@ import Servant.Auth.Server.SetCookieOrphan ()
 
 import Database.Persist.Postgresql (runSqlPool
                                    , get
+                                   , toSqlKey
+                                   , keyFromValues
                                    , insert
                                    , delete
                                    , update
@@ -43,6 +45,7 @@ import Database.Persist.Postgresql (runSqlPool
                                    , createPostgresqlPool
                                    , withPostgresqlPool
                                    , liftSqlPersistMPool
+                                   , PersistValue (PersistText)
                                    , Entity
                                    , SqlBackend
                                    , selectList)
@@ -50,19 +53,66 @@ import Database.Persist.Postgresql (runSqlPool
 import Database.Persist.Sql (rawSql, SqlPersistT, unSingle, Single)
 import Database.Persist.TH
 
+import Crypto.KDF.BCrypt (hashPassword, validatePassword)
+import qualified Data.ByteString.Char8 as B
+
 import Models
 import Config
 import Lib
 
-type UserAPI = Get '[JSON] [Entity User]           -- list all
+data UnsafeLogin = UnsafeLogin { email :: String
+                               , clearPass :: String} deriving (Generic)
+instance FromJSON UnsafeLogin
+
+type LoginAPI = "login" :> ReqBody '[JSON] UnsafeLogin
+                        :> Post '[JSON] (String)
+              :<|> "new" :> ReqBody '[JSON] UnsafeLogin
+                         :> Post '[JSON] (Key Login)
+
+hashIterations = 12 -- 15 =~ 6 sec
+
+loginServerT :: ServerT LoginAPI App
+loginServerT = login :<|> new
+  where
+    login :: UnsafeLogin -> App String
+    login (UnsafeLogin e p) = do
+        case (keyFromValues [PersistText $ pack e]) of
+          Left e -> error $ unpack e -- shouldn't happen
+          Right k -> do
+            mu <- (runDb (get k)) :: (App (Maybe Login))
+            case mu of
+              Nothing -> error "wrong username or pass" -- couldn't find user
+              Just (Login _ hp) -> do
+                if validatePassword (B.pack p) (B.pack hp)
+                then return "success"
+                else return "fail"
+
+    new :: UnsafeLogin -> App (Key Login)
+    new (UnsafeLogin e p) = do
+      k <- runDb . insert $ (User e Nothing Nothing)
+      hashed <- liftIO $ hashPassword hashIterations (B.pack p)
+      k' <- runDb . insert $ (Login e $ B.unpack hashed)
+      return k'
+
+loginServerToHandler :: Config -> App :~> ExceptT ServantErr IO
+loginServerToHandler cfg = Nat (flip runReaderT cfg . runApp)
+
+loginServer :: Config -> Server LoginAPI
+loginServer cfg = enter (loginServerToHandler cfg) loginServerT
+
+
+
+----------
+
+type UserAPI = Get '[JSON] [Entity User]                 -- list all - todo: auth+role
                 :<|> ReqBody '[JSON] User
-                     :> Post '[JSON] (Key User)     -- add a new one
+                     :> Post '[JSON] (Key User)          -- add a new one
                 :<|> Capture "userid" (Key User) :> 
                 (
-                  Get '[JSON] (Maybe User)          -- get one
+                  Get '[JSON] (Maybe User)               -- get one - todo: auth
                   :<|> ReqBody '[JSON] User
-                       :> PutNoContent '[JSON] NoContent -- replace one
-                  :<|> DeleteNoContent '[JSON] NoContent -- delete one
+                       :> PutNoContent '[JSON] NoContent -- replace one - todo: auth
+                  :<|> DeleteNoContent '[JSON] NoContent -- delete one - todo: auth
                 )
 
 userServerT :: ServerT UserAPI App
