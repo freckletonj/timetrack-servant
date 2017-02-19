@@ -55,11 +55,12 @@ import Lib
 
 import Api.TimeEntry
 import Api.User
+import Api.Login
 
 type API auths =      "time" :> (Auth auths User :> TimesAPI)
                  :<|> "user" :> UserAPI
                  :<|> LoginAPI
-                 :<|> (Auth auths User :> Protected)
+                 -- :<|> (Auth auths User :> Protected)
                  -- :<|> Unprotected
                  :<|> Raw
                  
@@ -71,7 +72,7 @@ server :: Config -> CookieSettings -> JWTSettings -> Server (API auths)
 server cfg cs jwts = timesServer cfg
                      :<|> userServer cfg
                      :<|> loginServer jwts cfg
-                     :<|> protected
+                     -- :<|> protected
                      -- :<|> unprotected cs jwts
                      :<|> files
 

@@ -46,8 +46,6 @@ TimeEntry json
   description  String
   Foreign      User fkuser userEmail
   deriving Show
-
-  
 |]
 
 instance FromJWT User
