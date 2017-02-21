@@ -57,7 +57,7 @@ import Api.TimeEntry
 import Api.User
 import Api.Login
 
-type API auths =      "time" :> (Auth auths User :> TimesAPI)
+type API auths =      "time" :> (Auth auths Token :> TimesAPI)
                  :<|> "user" :> UserAPI
                  :<|> LoginAPI
                  -- :<|> (Auth auths User :> Protected)
@@ -75,7 +75,6 @@ server cfg cs jwts = timesServer cfg
                      -- :<|> protected
                      -- :<|> unprotected cs jwts
                      :<|> files
-
 
 startApp :: IO ()
 startApp = do
@@ -103,10 +102,10 @@ startApp = do
   runSqlPool doMigrations connPool
 
   -- generate a valid test token, for testing by hand
-  etoken <- makeJWT (User "a" Nothing Nothing) jwtCfg Nothing
-  case etoken of
-    Left e -> putStrLn $ "Error generating token: " ++ show e 
-    Right v -> putStrLn $ "try this: " ++ "curl -H \"Authorization: Bearer " ++ show v ++ "\" localhost:8080/name -v"
+  -- etoken <- makeJWT (User "a" Nothing Nothing) jwtCfg Nothing
+  -- case etoken of
+  --   Left e -> putStrLn $ "Error generating token: " ++ show e 
+  --   Right v -> putStrLn $ "try this: " ++ "curl -H \"Authorization: Bearer " ++ show v ++ "\" localhost:8080/name -v"
     
   run 8081 app
 

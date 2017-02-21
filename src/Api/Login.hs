@@ -1,14 +1,15 @@
-{-# LANGUAGE MultiParamTypeClasses #-}
-{-# LANGUAGE FlexibleInstances #-}
-{-# LANGUAGE RankNTypes #-}
-{-# LANGUAGE FlexibleContexts #-}
-{-# LANGUAGE DataKinds         #-}
-{-# LANGUAGE DeriveFunctor     #-}
-{-# LANGUAGE DeriveGeneric     #-}
-{-# LANGUAGE OverloadedStrings #-}
-{-# LANGUAGE TemplateHaskell   #-}
-{-# LANGUAGE TypeOperators     #-}
+{-# LANGUAGE DataKinds                  #-}
+{-# LANGUAGE DeriveAnyClass             #-}
+{-# LANGUAGE DeriveFunctor              #-}
+{-# LANGUAGE DeriveGeneric              #-}
+{-# LANGUAGE FlexibleContexts           #-}
+{-# LANGUAGE FlexibleInstances          #-}
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
+{-# LANGUAGE MultiParamTypeClasses      #-}
+{-# LANGUAGE OverloadedStrings          #-}
+{-# LANGUAGE RankNTypes                 #-}
+{-# LANGUAGE TemplateHaskell            #-}
+{-# LANGUAGE TypeOperators              #-}
 
 module Api.Login where
 
@@ -36,27 +37,31 @@ import Servant
 import Servant.Auth.Server
 import Servant.Auth.Server.SetCookieOrphan ()
 
-import Database.Persist.Postgresql (runSqlPool
-                                   , get
-                                   , toSqlKey
-                                   , keyFromValues
-                                   , insert
-                                   , delete
-                                   , update
-                                   , replace
-                                   , deleteWhere
-                                   , ConnectionPool
-                                   , ConnectionString
-                                   , createPostgresqlPool
-                                   , withPostgresqlPool
-                                   , liftSqlPersistMPool
-                                   , PersistValue (PersistText)
-                                   , PersistEntity
-                                   , Entity
-                                   , SqlBackend
-                                   , selectList)
+import Database.Persist.Postgresql
+-- (runSqlPool
+--                                    , (==.)
+--                                    , get
+--                                    , Entity
+--                                    , toSqlKey
+--                                    , keyFromValues
+--                                    , insert
+--                                    , delete
+--                                    , update
+--                                    , replace
+--                                    , deleteWhere
+--                                    , ConnectionPool
+--                                    , ConnectionString
+--                                    , createPostgresqlPool
+--                                    , withPostgresqlPool
+--                                    , liftSqlPersistMPool
+--                                    , PersistValue (PersistText)
+--                                    , PersistEntity
+--                                    , Entity
+--                                    , SqlBackend
+--                                    , selectList
+--                                    , selectFirst)
 
-import Database.Persist.Sql (rawSql, SqlPersistT, unSingle, Single)
+import Database.Persist.Sql (rawSql, SqlPersistT, unSingle, Single, Entity)
 import Database.Persist.TH
 
 import Crypto.JOSE.Error (Error)
@@ -71,6 +76,8 @@ import Models
 import Config
 import Lib
 
+import Debug.Trace (trace)
+
 -- TODO: belongs in config
 hashIterations = 12         -- 15 =~ 6 sec
 tokenDuration = 60*60*24*30 -- one month, TODO: make revokable, expiration works, but can't be revoked that way
@@ -79,8 +86,14 @@ tokenDuration = 60*60*24*30 -- one month, TODO: make revokable, expiration works
 -- Login API
 
 data UnsafeLogin = UnsafeLogin { email :: String
-                               , clearPass :: String} deriving (Generic)
-instance FromJSON UnsafeLogin 
+                               , clearPass :: String} deriving (Generic, FromJSON)
+data Token = Token { userId :: UserId } deriving (Generic, ToJSON, FromJSON)
+
+instance FromJWT Token where
+instance ToJWT   Token where
+
+  
+--instance FromJSON UnsafeLogin 
 
 type LoginAPI = "token" :> ReqBody '[JSON] UnsafeLogin
                         :> Post '[JSON] (String)
@@ -92,17 +105,18 @@ loginServerT jwts = login :<|> new
   where
     login :: UnsafeLogin -> App String
     login (UnsafeLogin email p) =
-      createKey
-      >=> fetchPass
+      
+      fetchLogin
       >=> (validateHash p)
-      >=> const (getToken jwts (User email Nothing Nothing)) -- TODO: return a better object
+      >=> (\(Login uid _) ->
+             (getToken jwts (Token uid))) -- TODO: return a better object
       $ email -- this ends up as `createKey`'s param
      
     new :: UnsafeLogin -> App (Key Login)
     new (UnsafeLogin e p) = do
       k <- runDb . insert $ (User e Nothing Nothing)
       hashed <- liftIO $ hashPassword hashIterations (B.pack p)
-      k' <- runDb . insert $ (Login e $ B.unpack hashed)
+      k' <- runDb . insert $ (Login k $ B.unpack hashed)
       return k'
 
 loginServerToHandler :: Config -> App :~> ExceptT ServantErr IO
@@ -113,28 +127,38 @@ loginServer jwts cfg = enter (loginServerToHandler cfg) (loginServerT jwts)
 
 --------------------------------------------------
 
-returnJwt :: (ToJWT a) =>  JWTSettings -> a -> IO (Either Error BL.ByteString)
-returnJwt jwts obj = do
-  now <- getCurrentTime
-  let expiry = addUTCTime tokenDuration now
-  return =<< makeJWT obj jwts (Just expiry)
 
-createKey :: (PersistEntity record) => String -> App (Key record)
-createKey email = either (const $ throwError err401)
-                  return $ keyFromValues [PersistText $ pack email]
+-- createKey :: (PersistEntity record) => String -> App (Key record)
+-- createKey email = trace email $ either (const $ throwError err401)
+--                   return $ keyFromValues [PersistText $ pack email]
 
-fetchPass :: (Key Login) -> App String
-fetchPass k = do
-  (Login _ hp) <- maybe (throwError err401) return =<< (runDb (get k))
-  return hp
+fetchLogin :: String -> App Login
+fetchLogin e =  do
+  (Entity uid u) <- maybe (throwError err401) return
+           =<< (runDb (selectFirst [UserEmail ==. e] []))
+  (Entity _ l) <- maybe (throwError err401) return =<< (runDb (selectFirst [LoginUser ==. uid] []))
+  return l
+  -- case muser of
+  --   Nothing             -> throwError err401
+  --   Just (Entity uid u) -> undefined
 
-validateHash :: String -> String -> App ()
-validateHash p hp = if validatePassword (B.pack p) (B.pack hp)
-                    then return ()
-                    else throwError err401
+
+
+
+
+validateHash :: String -> Login -> App Login
+validateHash p login@(Login _ hp) = trace hp $
+                                    if validatePassword (B.pack p) (B.pack hp)
+                                    then return login
+                                    else throwError err401
 
 getToken :: (ToJWT a) => JWTSettings -> a -> App String
 getToken jwts obj = either (\_ -> throwError err401)
                     (return . B.unpack . BL.toStrict)
                     =<< liftIO (returnJwt jwts obj)
 
+returnJwt :: (ToJWT a) =>  JWTSettings -> a -> IO (Either Error BL.ByteString)
+returnJwt jwts obj = do
+  now <- getCurrentTime
+  let expiry = addUTCTime tokenDuration now
+  return =<< makeJWT obj jwts (Just expiry)

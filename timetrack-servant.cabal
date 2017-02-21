@@ -24,30 +24,29 @@ library
                 , Models
                 , Api.TimeEntry
                 , Api.User
+                , Api.Login
   build-depends:       base >= 4.7 && < 5
                      , aeson
-                     , servant-server 
-                     , servant-auth
-                     , servant-auth-server == 0.2.1.0
-                     , servant-auth-client
-                     , servant-auth-docs
-                     , jose
-                     -- , crypto-api
-                     , wai
-                     , warp
-                     , text
-                     , time
-
-                     , persistent
-                     , persistent-template
-                     , persistent-postgresql
-
-                     , monad-logger
-                     , mtl
-                     -- , transformers
+                     , lens-aeson
                      , bytestring
                      , cryptonite
                      , either
+                     , jose
+                     , lens
+                     , monad-logger
+                     , mtl
+                     , persistent
+                     , persistent-postgresql
+                     , persistent-template
+                     , servant-auth
+                     , servant-auth-client
+                     , servant-auth-docs
+                     , servant-auth-server == 0.2.1.0
+                     , servant-server 
+                     , text
+                     , time
+                     , wai
+                     , warp
                        
 
   default-language:    Haskell2010

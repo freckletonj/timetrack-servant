@@ -23,6 +23,12 @@ import Control.Monad.Logger   (runStdoutLoggingT)
 import Control.Monad.Reader
 import Control.Monad.Except   (ExceptT, MonadError)
 
+import Data.Aeson
+import Data.Aeson.Types (Parser, parseMaybe)
+import Data.Aeson.Lens
+import Control.Lens hiding ((.=))
+import Control.Lens.TH
+
 import GHC.Generics           (Generic)
 
 import Network.Wai
@@ -35,6 +41,7 @@ import Servant.Auth.Server.SetCookieOrphan ()
 import Database.Persist.Postgresql ( (==.)
                                    , runSqlPool
                                    , get
+                                   , getBy
                                    , insert
                                    , delete
                                    , update
@@ -55,12 +62,13 @@ import Database.Persist.TH
 import Models
 import Config
 import Lib
+import Api.Login
 
 -- sample data: 
 -- {"clockin": "2013-10-17T09:42:49.007Z",
 -- "description": "first success"}
 
-type TimesAPI = (
+type TimesAPI =
     Get '[JSON] [Entity TimeEntry]           -- list all
     :<|> ReqBody '[JSON] TimeEntry
       :> Post '[JSON] (Key TimeEntry)       -- add a new one
@@ -70,22 +78,35 @@ type TimesAPI = (
         :<|> ReqBody '[JSON] TimeEntry
           :> PutNoContent '[JSON] NoContent -- replace one
         :<|> DeleteNoContent '[JSON] NoContent -- delete one
-      ))
+      )
 
-timesServerT :: AuthResult User -> ServerT TimesAPI App
-timesServerT (Authenticated (User e f l))  =
+-- data TimeEntryJ = TimeEntryJ { clockin     :: String
+--                              , clockout    :: Maybe String
+--                              , description :: String}
+--                 deriving (Generic)
+
+-- instance FromJSON TimeEntryJ where
+
+-- addKeys :: String -> TimeEntryJ -> TimeEntry
+-- addKeys e t = 
+  
+timesServerT :: AuthResult Token -> ServerT TimesAPI App
+timesServerT (Authenticated u)  =
   listTimes
-  :<|> putTime
+  :<|> createTime
   :<|> (\ti ->
            getTime ti
            :<|> updateTime ti
            :<|> deleteTime ti
        )
-  where listTimes :: App [Entity TimeEntry]
-        listTimes = runDb (selectList [TimeEntryUserEmail ==. e] []) >>= return
+  where u' = userId u
+
+        listTimes :: App [Entity TimeEntry]
+        listTimes = runDb (selectList [TimeEntryUser ==. u'] [])
+                    >>= return
         
-        putTime :: TimeEntry -> App (Key TimeEntry)
-        putTime te = runDb (insert te) >>= return
+        createTime :: TimeEntry -> App (Key TimeEntry)
+        createTime te = runDb (insert te) >>= return
         
         getTime :: (Key TimeEntry) -> App (Maybe TimeEntry)
         getTime i = runDb (get i) >>= return
@@ -100,7 +121,7 @@ timesServerT _ = throwAll err401
 timesServerToHandler :: Config -> App :~> ExceptT ServantErr IO
 timesServerToHandler cfg = Nat (flip runReaderT cfg . runApp)
 
-timesServer :: Config -> (AuthResult User) -> Server TimesAPI
+timesServer :: Config -> (AuthResult Token) -> Server TimesAPI
 timesServer cfg u = enter (timesServerToHandler cfg) (timesServerT u)
 
 
