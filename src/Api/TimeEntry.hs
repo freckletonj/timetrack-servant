@@ -1,3 +1,5 @@
+{-# LANGUAGE RecordWildCards #-}
+{-# LANGUAGE DeriveAnyClass #-}
 {-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE DataKinds         #-}
@@ -26,7 +28,7 @@ import Control.Monad.Except   (ExceptT, MonadError)
 import Data.Aeson
 import Data.Aeson.Types (Parser, parseMaybe)
 import Data.Aeson.Lens
-import Control.Lens hiding ((.=))
+import Control.Lens hiding ((.=), set, (^.))
 import Control.Lens.TH
 
 import GHC.Generics           (Generic)
@@ -38,26 +40,29 @@ import Servant
 import Servant.Auth.Server
 import Servant.Auth.Server.SetCookieOrphan ()
 
-import Database.Persist.Postgresql ( (==.)
-                                   , runSqlPool
-                                   , get
-                                   , getBy
-                                   , insert
-                                   , delete
-                                   , update
-                                   , replace
-                                   , deleteWhere
-                                   , ConnectionPool
-                                   , ConnectionString
-                                   , createPostgresqlPool
-                                   , withPostgresqlPool
-                                   , liftSqlPersistMPool
-                                   , Entity
-                                   , SqlBackend
-                                   , selectList)
+import Database.Persist.Postgresql
+-- ( (==.)
+--                                    , runSqlPool
+--                                    , get
+--                                    , getBy
+--                                    , insert
+--                                    , delete
+--                                    , update
+--                                    , replace
+--                                    , deleteWhere
+--                                    , ConnectionPool
+--                                    , ConnectionString
+--                                    , createPostgresqlPool
+--                                    , withPostgresqlPool
+--                                    , liftSqlPersistMPool
+--                                    , Entity
+--                                    , SqlBackend
+--                                    , selectList)
 
-import Database.Persist.Sql (rawSql, SqlPersistT, unSingle, Single)
+-- import Database.Persist.Sql -- (rawSql, SqlPersistT, unSingle, Single)
 import Database.Persist.TH
+--import Database.Esqueleto
+import qualified Database.Esqueleto as E
 
 import Models
 import Config
@@ -68,30 +73,54 @@ import Api.Login
 -- {"clockin": "2013-10-17T09:42:49.007Z",
 -- "description": "first success"}
 
+
+--------------------------------------------------
+-- Annoying Data Munging
+
+-- TimeEntrys that go over the Wire
+--   they're just missing the `user` foreign key
+--   and of course the TimeEntryID which Persistent
+--   normally handles anyways
+
+data TimeEntryW = TimeEntryW { clockin :: UTCTime
+                             , clockout :: Maybe UTCTime
+                             , description :: String}
+                  deriving (Show, Generic, ToJSON, FromJSON)
+
+timeEntryW :: TimeEntry -> TimeEntryW
+timeEntryW TimeEntry{..} = TimeEntryW {
+  clockin       = timeEntryClockin
+  , clockout    = timeEntryClockout
+  , description = timeEntryDescription
+  }
+
+timeEntry :: (Key User) -> TimeEntryW -> TimeEntry
+timeEntry fk TimeEntryW{..} = TimeEntry {
+  timeEntryUser          = fk
+  , timeEntryClockin     = clockin
+  , timeEntryClockout    = clockout
+  , timeEntryDescription = description
+  }
+
+
+--------------------------------------------------
+-- Api
+
 type TimesAPI =
     Get '[JSON] [Entity TimeEntry]           -- list all
-    :<|> ReqBody '[JSON] TimeEntry
+    :<|> ReqBody '[JSON] TimeEntryW
       :> Post '[JSON] (Key TimeEntry)       -- add a new one
     :<|> Capture "timeid" (Key TimeEntry) :> 
       (
-        Get '[JSON] (Maybe TimeEntry)          -- get one
-        :<|> ReqBody '[JSON] TimeEntry
-          :> PutNoContent '[JSON] NoContent -- replace one
+        Get '[JSON] (Maybe (Entity TimeEntry))          -- get one
+        :<|> ReqBody '[JSON] TimeEntryW
+          :> Put '[JSON] String -- replace one
         :<|> DeleteNoContent '[JSON] NoContent -- delete one
       )
 
--- data TimeEntryJ = TimeEntryJ { clockin     :: String
---                              , clockout    :: Maybe String
---                              , description :: String}
---                 deriving (Generic)
-
--- instance FromJSON TimeEntryJ where
-
--- addKeys :: String -> TimeEntryJ -> TimeEntry
--- addKeys e t = 
   
 timesServerT :: AuthResult Token -> ServerT TimesAPI App
-timesServerT (Authenticated u)  =
+timesServerT (Authenticated tok)  =
   listTimes
   :<|> createTime
   :<|> (\ti ->
@@ -99,20 +128,39 @@ timesServerT (Authenticated u)  =
            :<|> updateTime ti
            :<|> deleteTime ti
        )
-  where u' = userId u
+  where u = userId tok
 
         listTimes :: App [Entity TimeEntry]
-        listTimes = runDb (selectList [TimeEntryUser ==. u'] [])
+        listTimes = runDb (selectList [TimeEntryUser ==. u] [])
                     >>= return
         
-        createTime :: TimeEntry -> App (Key TimeEntry)
-        createTime te = runDb (insert te) >>= return
+        createTime :: TimeEntryW -> App (Key TimeEntry)
+        createTime tew = runDb (insert (timeEntry u tew)) >>= return
         
-        getTime :: (Key TimeEntry) -> App (Maybe TimeEntry)
-        getTime i = runDb (get i) >>= return
+        getTime :: (Key TimeEntry) -> App (Maybe (Entity TimeEntry))
+        getTime i = runDb (selectFirst [ (TimeEntryUser ==. u)
+                                       , (TimeEntryId ==. i)] [])
+                    -- >>= return
         
-        updateTime :: (Key TimeEntry) -> TimeEntry -> App NoContent
-        updateTime i te = runDb (replace i te) >> return NoContent
+        updateTime :: (Key TimeEntry) -> TimeEntryW -> App String
+        updateTime i te = do
+          a <- runDb
+            (E.updateCount $ \t -> do
+
+              -- boiler plate!!!
+              E.set t [ TimeEntryClockin        E.=. (E.val $ clockin te)
+                      , TimeEntryClockout       E.=. (E.val $ clockout te)
+                      , TimeEntryDescription    E.=. (E.val $ description te)]
+
+              -- check to make sure they own this row
+              E.where_ (t E.^. TimeEntryUser    E.==. (E.val u)
+                       E.&&. t E.^. TimeEntryId E.==. (E.val i))
+            )
+          return . show . fromIntegral $ a
+                    
+                                    
+                                 
+          
         
         deleteTime :: (Key TimeEntry) -> App NoContent
         deleteTime i = runDb (delete i) >> return NoContent

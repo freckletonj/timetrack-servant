@@ -35,6 +35,7 @@ library
                      , lens
                      , monad-logger
                      , mtl
+                     , esqueleto
                      , persistent
                      , persistent-postgresql
                      , persistent-template

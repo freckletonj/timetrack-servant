@@ -86,8 +86,12 @@ tokenDuration = 60*60*24*30 -- one month, TODO: make revokable, expiration works
 -- Login API
 
 data UnsafeLogin = UnsafeLogin { email :: String
-                               , clearPass :: String} deriving (Generic, FromJSON)
-data Token = Token { userId :: UserId } deriving (Generic, ToJSON, FromJSON)
+                               , clearPass :: String}
+                 deriving (Generic, FromJSON)
+
+data Token = Token {
+  userId :: UserId
+  } deriving (Generic, ToJSON, FromJSON)
 instance FromJWT Token where
 instance ToJWT   Token where
 
@@ -101,12 +105,11 @@ loginServerT jwts = login :<|> new
   where
     login :: UnsafeLogin -> App String
     login (UnsafeLogin email p) =
-      
-      fetchLogin
+          fetchLogin
       >=> (validateHash p)
       >=> (\(Login uid _) ->
-             (getToken jwts (Token uid))) -- TODO: return a better object
-      $ email -- this ends up as `createKey`'s param
+             (getToken jwts (Token uid)))
+      $ email
      
     new :: UnsafeLogin -> App (Key Login)
     new (UnsafeLogin e p) = do
@@ -127,8 +130,9 @@ loginServer jwts cfg = enter (loginServerToHandler cfg) (loginServerT jwts)
 fetchLogin :: String -> App Login
 fetchLogin e =  do
   (Entity uid u) <- maybe (throwError err401) return
-           =<< (runDb (selectFirst [UserEmail ==. e] []))
-  (Entity _ l) <- maybe (throwError err401) return =<< (runDb (selectFirst [LoginUser ==. uid] []))
+    =<< (runDb (selectFirst [UserEmail ==. e] []))
+  (Entity _ l) <- maybe (throwError err401) return
+    =<< (runDb (selectFirst [LoginUser ==. uid] []))
   return l
 
 validateHash :: String -> Login -> App Login
