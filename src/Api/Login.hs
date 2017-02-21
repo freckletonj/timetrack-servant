@@ -88,12 +88,8 @@ tokenDuration = 60*60*24*30 -- one month, TODO: make revokable, expiration works
 data UnsafeLogin = UnsafeLogin { email :: String
                                , clearPass :: String} deriving (Generic, FromJSON)
 data Token = Token { userId :: UserId } deriving (Generic, ToJSON, FromJSON)
-
 instance FromJWT Token where
 instance ToJWT   Token where
-
-  
---instance FromJSON UnsafeLogin 
 
 type LoginAPI = "token" :> ReqBody '[JSON] UnsafeLogin
                         :> Post '[JSON] (String)
@@ -127,24 +123,13 @@ loginServer jwts cfg = enter (loginServerToHandler cfg) (loginServerT jwts)
 
 --------------------------------------------------
 
-
--- createKey :: (PersistEntity record) => String -> App (Key record)
--- createKey email = trace email $ either (const $ throwError err401)
---                   return $ keyFromValues [PersistText $ pack email]
-
+-- TODO: this is 2 calls to the db, silly
 fetchLogin :: String -> App Login
 fetchLogin e =  do
   (Entity uid u) <- maybe (throwError err401) return
            =<< (runDb (selectFirst [UserEmail ==. e] []))
   (Entity _ l) <- maybe (throwError err401) return =<< (runDb (selectFirst [LoginUser ==. uid] []))
   return l
-  -- case muser of
-  --   Nothing             -> throwError err401
-  --   Just (Entity uid u) -> undefined
-
-
-
-
 
 validateHash :: String -> Login -> App Login
 validateHash p login@(Login _ hp) = trace hp $
