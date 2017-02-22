@@ -29,6 +29,12 @@ library
                      , aeson
                      , lens-aeson
                      , bytestring
+                     , uuid
+                     , random
+                       
+                       -- needed for defining UUID for Persistent
+                     , path-pieces
+                       
                      , cryptonite
                      , either
                      , jose

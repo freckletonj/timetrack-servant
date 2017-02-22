@@ -107,16 +107,26 @@ timeEntry fk TimeEntryW{..} = TimeEntry {
 -- Api
 
 type TimesAPI =
-    Get '[JSON] [Entity TimeEntry]           -- list all
+  -- List All
+  Get '[JSON] [Entity TimeEntry]
+
+  -- Create New
+  :<|> ReqBody '[JSON] TimeEntryW
+  :> Post '[JSON] (Key TimeEntry)
+
+  :<|> Capture "TimeEntryId" (Key TimeEntry) :>
+  (
+
+    -- Get One
+    Get '[JSON] (Maybe (Entity TimeEntry))
+
+    -- Update One
     :<|> ReqBody '[JSON] TimeEntryW
-      :> Post '[JSON] (Key TimeEntry)       -- add a new one
-    :<|> Capture "timeid" (Key TimeEntry) :> 
-      (
-        Get '[JSON] (Maybe (Entity TimeEntry))          -- get one
-        :<|> ReqBody '[JSON] TimeEntryW
-          :> Put '[JSON] String -- replace one
-        :<|> DeleteNoContent '[JSON] NoContent -- delete one
-      )
+    :> Put '[JSON] Int
+
+    -- Delete One
+    :<|> Delete '[JSON] NoContent
+  )
 
   
 timesServerT :: AuthResult Token -> ServerT TimesAPI App
@@ -142,7 +152,7 @@ timesServerT (Authenticated tok)  =
                                        , (TimeEntryId ==. i)] [])
                     -- >>= return
         
-        updateTime :: (Key TimeEntry) -> TimeEntryW -> App String
+        updateTime :: (Key TimeEntry) -> TimeEntryW -> App Int
         updateTime i te = do
           a <- runDb
             (E.updateCount $ \t -> do
@@ -154,9 +164,9 @@ timesServerT (Authenticated tok)  =
 
               -- check to make sure they own this row
               E.where_ (t E.^. TimeEntryUser    E.==. (E.val u)
-                       E.&&. t E.^. TimeEntryId E.==. (E.val i))
+                  E.&&. t E.^. TimeEntryId      E.==. (E.val i))
             )
-          return . show . fromIntegral $ a
+          return . fromIntegral $ a
                     
                                     
                                  

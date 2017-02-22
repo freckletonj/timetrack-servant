@@ -14,6 +14,7 @@ import           Control.Monad.Reader
 import           Data.Aeson           (FromJSON, ToJSON)
 import Data.Time (UTCTime)
 
+
 import           Database.Persist.Sql
 import           Database.Persist.TH  (mkMigrate, mkPersist, persistLowerCase,
                                        share, sqlSettings)
@@ -23,7 +24,13 @@ import Servant.Auth.Server
 import Servant.Auth.Server.SetCookieOrphan ()
 
 
+
+import Data.UUID
+import qualified Data.ByteString as B8
+import System.Random
+
 import Config
+import Models.Util
 
 -- http://stackoverflow.com/questions/35676855/represent-foreign-key-relationship-in-json-using-servant-and-persistent/35677153
 -- https://www.reddit.com/r/haskell/comments/4dhpnz/best_way_of_converting_between_persistent_types/
@@ -41,30 +48,35 @@ sqlSettings
     }
 -}
 
-share [mkPersist sqlSettings, mkMigrate "migrateAll"] [persistLowerCase|
+
+
+share
+  [mkPersist sqlSettings, mkMigrate "migrateAll"]
+  [persistLowerCase|
 User json
+  wid        UUID sqltype=uuid default=uuid_generate_v4()
   email     String
   firstName String Maybe
   lastName  String Maybe
+
+  Primary         wid
+  UniqueUserUuid  wid
+  UniqueUserEmail email
   deriving Show Eq
   
 Login json
   user      UserId
   passHash  String
-  -- Foreign   User fkuser user
   deriving Show Eq
   
 TimeEntry json
-  user       UserId
+  user         UserId
   clockin      UTCTime
   clockout     UTCTime Maybe
   description  String
-  -- Foreign      User fkuser user
   deriving Show Eq
 |]
 
--- instance FromJWT User
--- instance ToJWT User
 
 doMigrations :: SqlPersistT IO ()
 doMigrations = runMigration migrateAll
@@ -74,5 +86,3 @@ runDb query = do
   pool <- asks getPool
   liftIO $ runSqlPool query pool
 
-
--- base semantic type, incorporate into Persistent repr, but doesn't play nice with QQ
