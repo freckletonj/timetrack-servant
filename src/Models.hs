@@ -54,13 +54,11 @@ share
   [mkPersist sqlSettings, mkMigrate "migrateAll"]
   [persistLowerCase|
 User json
-  wid        UUID sqltype=uuid default=uuid_generate_v4()
+  Id      UUID sqltype=uuid default=uuid_generate_v4()
   email     String
   firstName String Maybe
   lastName  String Maybe
-
-  Primary         wid
-  UniqueUserUuid  wid
+  
   UniqueUserEmail email
   deriving Show Eq
   

@@ -26,8 +26,10 @@ instance FromJSON UUID where
                                     Nothing -> fail "not a uuid")
 
 --------------------------------------------------
-
--- reference : http://bitemyapp.com/posts/2016-06-15-uuids-with-persistent-yesod.html
+-- UUID Persist
+--   reference :
+--     - http://bitemyapp.com/posts/2016-06-15-uuids-with-persistent-yesod.html
+--     - http://michaelxavier.net/posts/2015-04-14-Adding-a-UUID-Column-to-a-Persistent-Table.html
 
 instance PersistField UUID where
   toPersistValue u = PersistDbSpecific . toASCIIBytes $ u
@@ -40,6 +42,8 @@ instance PersistField UUID where
 instance PersistFieldSql UUID where
   sqlType _ = SqlOther "uuid"
 
+-- Yesod-related cruft, but needed for UUIDs to work
+--   just converts to/from text for yesod's url paths
 instance PathPiece UUID where
   toPathPiece = toText
   fromPathPiece = fromText

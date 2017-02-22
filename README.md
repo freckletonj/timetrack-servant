@@ -1,3 +1,8 @@
+# Setup
+- allow UUID in postgres
+
+    `CREATE EXTENSION "uuid-ossp";`
+
 # Endpoints
 
 - User - CRUD
@@ -5,6 +10,7 @@
 - Times
 
 # Issues
+
 
 # TODO
 
