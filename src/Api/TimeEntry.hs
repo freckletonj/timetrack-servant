@@ -30,7 +30,6 @@ import Data.Aeson.Types (Parser, parseMaybe)
 import Data.Aeson.Lens
 import Control.Lens hiding ((.=), set, (^.))
 import Control.Lens.TH
-
 import GHC.Generics           (Generic)
 
 import Network.Wai
@@ -41,27 +40,7 @@ import Servant.Auth.Server
 import Servant.Auth.Server.SetCookieOrphan ()
 
 import Database.Persist.Postgresql
--- ( (==.)
---                                    , runSqlPool
---                                    , get
---                                    , getBy
---                                    , insert
---                                    , delete
---                                    , update
---                                    , replace
---                                    , deleteWhere
---                                    , ConnectionPool
---                                    , ConnectionString
---                                    , createPostgresqlPool
---                                    , withPostgresqlPool
---                                    , liftSqlPersistMPool
---                                    , Entity
---                                    , SqlBackend
---                                    , selectList)
-
--- import Database.Persist.Sql -- (rawSql, SqlPersistT, unSingle, Single)
 import Database.Persist.TH
---import Database.Esqueleto
 import qualified Database.Esqueleto as E
 
 import Models
@@ -73,14 +52,13 @@ import Api.Login
 -- {"clockin": "2013-10-17T09:42:49.007Z",
 -- "description": "first success"}
 
-
 --------------------------------------------------
 -- Annoying Data Munging
 
 -- TimeEntrys that go over the Wire
 --   they're just missing the `user` foreign key
 --   and of course the TimeEntryID which Persistent
---   normally handles anyways
+--   normally handles anyways through `Entity`s
 
 data TimeEntryW = TimeEntryW { clockin :: UTCTime
                              , clockout :: Maybe UTCTime
@@ -167,13 +145,10 @@ timesServerT (Authenticated tok)  =
                   E.&&. t E.^. TimeEntryId      E.==. (E.val i))
             )
           return . fromIntegral $ a
-                    
-                                    
-                                 
-          
         
         deleteTime :: (Key TimeEntry) -> App NoContent
         deleteTime i = runDb (delete i) >> return NoContent
+        
 timesServerT _ = throwAll err401
 
 timesServerToHandler :: Config -> App :~> ExceptT ServantErr IO
@@ -181,87 +156,4 @@ timesServerToHandler cfg = Nat (flip runReaderT cfg . runApp)
 
 timesServer :: Config -> (AuthResult Token) -> Server TimesAPI
 timesServer cfg u = enter (timesServerToHandler cfg) (timesServerT u)
-
-
-
-
--- -----------------------------------------------------------------------------
--- -----------------------------------------------------------------------------
--- -----------------------------------------------------------------------------
--- -- THIS STUFF IS JUST FOR REFERENCE, AND ISNT REALLY USED ANYWHERE
--- -----------------------------------------------------------------------------
--- -----------------------------------------------------------------------------
--- -----------------------------------------------------------------------------
-
-
-
--- --------------------------------------------------
--- -- Auth API
--- type Protected
---     = "email"  :> Get '[JSON] String
--- -- :<|> "email" :> Get '[JSON] String
--- protected :: AuthResult User -> Server Protected
--- protected (Authenticated user) = return (userEmail user)
--- protected _ = throwAll err401
-
-
--- {-
-
--- type Unprotected =
---  "login"
---      :> ReqBody '[JSON] Login
---      :> Post '[JSON] (Headers '[Header "Set-Cookie" SetCookie] String)
---   :<|> Raw
-
--- unprotected :: CookieSettings -> JWTSettings -> Server Unprotected
--- unprotected cs jwts = checkCreds cs jwts
---                  :<|> serveDirectory "example/static" 
-
-
--- -- for static assets
--- -}
-
--- -- --------------------------------------------------
--- -- -- Misc API
-
--- -- type MiscAPI = "nowIO" :> Get '[JSON] UTCTime
--- --           :<|> "error" :> Get '[JSON] String
--- --           :<|> "printIO" :> Get '[JSON] NoContent
-
--- -- miscServer :: Server MiscAPI
--- -- miscServer = now
--- --              :<|> error
--- --              :<|> printer
--- --   where
--- --         now :: Handler UTCTime
--- --         now = liftIO getCurrentTime >>= return
--- --         error :: Handler String
--- --         error = throwError err404 { errBody = "a dinosaur ate the server" }
--- --         printer :: Handler NoContent
--- --         printer = liftIO $ putStrLn "printed!" >> return NoContent
-
--- -- --------------------------------------------------
--- -- -- ReaderMonad API
-
--- -- type ReaderAPI = Get '[JSON] UTCTime
--- -- readerServerT :: ServerT ReaderAPI App
--- -- readerServerT = f
--- --   where
--- --     f :: App UTCTime
--- --     f = runDb selNow >>= return . unSingle . head
-
--- -- readerAPI :: Proxy ReaderAPI
--- -- readerAPI = Proxy
-
--- -- readerToHandler :: Config -> App :~> ExceptT ServantErr IO
--- -- readerToHandler cfg = Nat (flip runReaderT cfg . runApp)
-
--- -- readerServer :: Config -> Server ReaderAPI
--- -- readerServer  cfg = enter (readerToHandler cfg) readerServerT
-
--- -- selNow :: MonadIO m => ReaderT SqlBackend m [Single UTCTime]
--- -- selNow = rawSql "select now()" []
-
--- -- allTimeEntries :: App [Entity TimeEntry]
--- -- allTimeEntries = runDb (selectList [] [])
 

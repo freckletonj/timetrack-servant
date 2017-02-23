@@ -1,0 +1,111 @@
+# -*- restclient -*-
+##################################################
+#
+# for use with emacs' `restclient`
+#
+# Shortcuts
+#   C-c C-c     : run query
+#   C-c C-v     : run query, but don't focus on new buffer
+#   C-c C-<p,n> : jump to queries
+#   C-c C-u     : copy query under point *AS A CURL COMMAND*!
+#   C-c C-g     : start a helm session to find your way around quicker
+#   C-M-i       : `company-complete`, of course
+
+
+##################################################
+# Constants
+:s = http://localhost:8081
+
+:auth = <<
+Authorization: Bearer :jwt
+#
+
+:json = <<
+Content-Type: application/json
+#
+
+##################################################
+# Variables
+
+# Copy a JWT here by hand
+:jwtX = eyJhbGciOiJIUzI1NiJ9.eyJleHAiOjEuNDkwMzk0NTU2MjU5ODZlOSwiZGF0Ijp7InVzZXJJZCI6ImJiNjk4NGU4LTYyNWMtNDE0OC04ODU3LTdjZmIwN2Y0ZDYyMCJ9fQ.l4Ic2Nd59eNihYH7IcTif7EABO3zv-9ipCMuW9Y9dDs
+#
+
+# Get a JWT Token for Authorization automatically
+#   so that when the server refreshes and loses
+#   the key for decoding it, you don't have to
+#   copy stuff by hand!
+# Beware the hack! It parses out the token in a
+#   particularly nefarious way, as well as having
+#   some important stuff hardcoded in
+:jwt := <<
+(let ((url-request-method        "POST")
+      (url-request-extra-headers '(("Content-Type" . "application/json")))
+      (url-request-data          (json-encode '(("email" . "a") ("clearPass" . "a")))))
+  (with-current-buffer (url-retrieve-synchronously "http://localhost:8081/token")
+    (goto-char (point-min))
+    (re-search-forward "\\\"")
+    (delete-region (point) (point-min))
+    (goto-char (point-max))
+    (backward-char 1)
+    (delete-region (point) (point-max))
+    (buffer-string)))
+#
+
+##################################################
+# END POINTS
+
+# --------------------------------------------------
+# Auth
+
+
+# Signup
+POST :s/signup
+:json
+{
+    "email": "b",
+    "clearPass": "a"
+}
+
+# Auth Token
+POST :s/token
+:json
+{
+    "email": "a",
+    "clearPass": "a"
+}
+
+# --------------------------------------------------
+# Time
+
+# Get Times
+GET :s/time
+:auth
+
+# Create Time
+POST :s/time
+:auth
+:json
+{
+    "clockin": "2013-10-17T09:42:49.007Z",
+    "description": "from restclient"
+}
+
+# Get Time
+GET :s/time/1
+:auth
+:json
+
+# Update Time
+PUT :s/time/1
+:auth
+:json
+{
+    "clockin": "2013-10-17T09:42:49.007Z",
+    "description": "hey"
+}
+
+# Delete Time
+
+# --------------------------------------------------
+#

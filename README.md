@@ -24,6 +24,10 @@
 - logging
 - replace JWT sessions with actual sessions
 
+- enforcing role security?
+- enforcing row-level security?
+- enforcing all security things in one place instead of sprinkled throughout
+
 # Structure
 
 - app/

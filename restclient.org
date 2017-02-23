@@ -1,0 +1,6 @@
+#+BEGIN_SRC restclient
+
+GET http://example.com
+
+#+END_SRC
+

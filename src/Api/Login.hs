@@ -57,44 +57,6 @@ import Lib
 
 import Debug.Trace (trace)
 
-{-
-
-# Custom Primary Keys
-- http://stackoverflow.com/questions/41215452/yesod-querying-persist-database-with-a-custom-primary-key
-need custom type XKey = XKey { unXKey :: ... }
-
-# Allowing DB to provide unspecified values (via `default`)
-- http://stackoverflow.com/questions/35231697/how-to-let-default-values-come-from-the-database
-  - DB Triggers
-    - http://stackoverflow.com/questions/1035980/update-timestamp-when-row-is-updated-in-postgresql
-  - don't, specify all values in haskell
-- https://www.reddit.com/r/haskell/comments/4srvuw/struggling_to_implement_createdat_updatedat/
-  - DB Triggers
-  - yesod lazy fields
-    - https://github.com/yesodweb/persistent/wiki/Persistent-entity-syntax#laziness
-- https://groups.google.com/forum/#!topic/yesodweb/sLZ53JzIjVQ
-  - specify in haskell, don't let the db handle defaults
-  - custom fns, eg insertWithUUID :: PersistValue? -> m ()
-
-*** I'm pursuing the "do it in haskell" method
-
-# UUIDs
-## Sequential Namespace
-- V1 - based on MAC address + system clock - not thread safe, fast - libs like https://github.com/danlentz/clj-uuid can make em thread safe through use of "subcounters" for when the clock isn't sufficiently granular to distinguish two times
-
-
-## Cryptographic Ids
-- V4 - slow, and pseudo-non-deterministic (because of using a pseudo-random seed)
-
-## Namespaced Ids
-- V3 - MD5  - faster
-- V5 - SHA1 - more secure
-
-seeded with some text, and then deterministically generated
-
-
--}
-
 
 -- TODO: belongs in config
 hashIterations = 12         -- 15 =~ 6 sec
@@ -103,9 +65,9 @@ tokenDuration = 60*60*24*30 -- one month, TODO: make revokable, expiration works
 --------------------------------------------------
 -- Persist Utils
 
+-- unused as of no
 withUUID :: (UUID -> User) -> IO User
 withUUID = (nextRandom >>=) . (return .)
-
   
 --------------------------------------------------
 -- Login API
