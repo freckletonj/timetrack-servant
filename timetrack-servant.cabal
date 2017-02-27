@@ -34,7 +34,7 @@ library
                        
                        -- needed for defining UUID for Persistent
                      , path-pieces
-                       
+
                      , cryptonite
                      , either
                      , jose

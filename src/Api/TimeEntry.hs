@@ -1,15 +1,14 @@
-{-# LANGUAGE RecordWildCards #-}
-{-# LANGUAGE DeriveAnyClass #-}
-{-# LANGUAGE RankNTypes #-}
-{-# LANGUAGE FlexibleContexts #-}
-{-# LANGUAGE DataKinds         #-}
-{-# LANGUAGE DeriveFunctor     #-}
-{-# LANGUAGE DeriveGeneric     #-}
-{-# LANGUAGE OverloadedStrings #-}
-{-# LANGUAGE TemplateHaskell   #-}
-{-# LANGUAGE TypeOperators     #-}
+{-# LANGUAGE RecordWildCards            #-}
+{-# LANGUAGE DeriveAnyClass             #-}
+{-# LANGUAGE RankNTypes                 #-}
+{-# LANGUAGE FlexibleContexts           #-}
+{-# LANGUAGE DataKinds                  #-}
+{-# LANGUAGE DeriveFunctor              #-}
+{-# LANGUAGE DeriveGeneric              #-}
+{-# LANGUAGE OverloadedStrings          #-}
+{-# LANGUAGE TemplateHaskell            #-}
+{-# LANGUAGE TypeOperators              #-}
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
-
 
 module Api.TimeEntry where
 
@@ -26,9 +25,9 @@ import Control.Monad.Reader
 import Control.Monad.Except   (ExceptT, MonadError)
 
 import Data.Aeson
-import Data.Aeson.Types (Parser, parseMaybe)
+import Data.Aeson.Types       (Parser, parseMaybe)
 import Data.Aeson.Lens
-import Control.Lens hiding ((.=), set, (^.))
+import Control.Lens hiding    ((.=), set, (^.))
 import Control.Lens.TH
 import GHC.Generics           (Generic)
 
@@ -47,10 +46,6 @@ import Models
 import Config
 import Lib
 import Api.Login
-
--- sample data: 
--- {"clockin": "2013-10-17T09:42:49.007Z",
--- "description": "first success"}
 
 --------------------------------------------------
 -- Annoying Data Munging
@@ -80,6 +75,52 @@ timeEntry fk TimeEntryW{..} = TimeEntry {
   , timeEntryDescription = description
   }
 
+{-
+Design Pattern ------------------------------
+-- https://github.com/jhedev/todobackend-haskell/blob/master/todobackend-common/src/TodoBackend/Model.hs
+
+-- Servant
+... ReqBody ... ModelXAction :> ... ModelXResponse
+
+-- DB, persistent dresses it with extras, eg a primary key
+data ModelX = ModelX { modelXFieldA :: A, modelXFieldB :: B } -- probably defined in Persistent.TH form
+
+-- HTTP
+-- response adds id, and some examples add a url path to this resource
+data ModelXResponse = ModelXResponse { mxrid :: ModelXId, mxrFieldA :: A, mxrFieldB :: B } deriving (Show)
+$(deriveToJSON defaultOptions { fieldLabelModifier = drop (length "mxr") } -- some fn for character casing?
+  ''ModelXResponse)
+
+-- Action, great for PATCHes
+-- maybe everything!
+data ModelXAction = ModelXAction { actFieldA :: Maybe A, actFieldB :: Maybe B } deriving (Show, Generic, FromJSON) -- prob no ToJSON?
+
+-- defaults -- probably not a great idea
+actionToDefaultModelX :: ModelXAction -> ModelX
+
+-- PATCHable updates
+actionToUpdates :: ModelXAction -> [Update ModelX]
+... [ModelXFieldA =. ...] ++ [ModelXFieldB =. ...]
+
+-}
+
+{-
+Useful Abstraction to build at some point
+https://www.reddit.com/r/haskell/comments/3eylp6/testing_servant_persistent_web_app/
+
+-- CRUD endpoints for entities of type 'a'
+-- indexed by values of type 'i'
+type CRUD i a = ReqBody '[JSON] a :> POST '[JSON] () -- create
+           :<|> Capture "id" i :> Get '[JSON] a -- read
+           :<|> Capture "id" i :> ReqBody '[JSON] a :> Put '[JSON] () -- update
+           :<|> Capture "id" i :> Delete '[JSON] () -- delete
+           -- the last three could be written:
+           -- Capture "id" i :> (Get ... :<|> ReqBody ... :> Put ... :<|> Delete ...)
+
+type MyAPI = "users" :> CRUD UserId User
+        :<|> "products" :> CRUD ProductId Product
+
+-}
 
 --------------------------------------------------
 -- Api
@@ -128,19 +169,18 @@ timesServerT (Authenticated tok)  =
         getTime :: (Key TimeEntry) -> App (Maybe (Entity TimeEntry))
         getTime i = runDb (selectFirst [ (TimeEntryUser ==. u)
                                        , (TimeEntryId ==. i)] [])
-                    -- >>= return
         
         updateTime :: (Key TimeEntry) -> TimeEntryW -> App Int
         updateTime i te = do
           a <- runDb
             (E.updateCount $ \t -> do
 
-              -- boiler plate!!!
+              -- boiler plate!!! this can eventually be moved into a CRUD generalization
               E.set t [ TimeEntryClockin        E.=. (E.val $ clockin te)
                       , TimeEntryClockout       E.=. (E.val $ clockout te)
                       , TimeEntryDescription    E.=. (E.val $ description te)]
 
-              -- check to make sure they own this row
+              -- check to make sure they own this row, security shouldn't be conflated here, but how then?
               E.where_ (t E.^. TimeEntryUser    E.==. (E.val u)
                   E.&&. t E.^. TimeEntryId      E.==. (E.val i))
             )

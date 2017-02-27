@@ -10,7 +10,11 @@
 #   C-c C-u     : copy query under point *AS A CURL COMMAND*!
 #   C-c C-g     : start a helm session to find your way around quicker
 #   C-M-i       : `company-complete`, of course
-
+#
+# Note
+#   bind response to a variable
+#   https://github.com/pashky/restclient.el/issues/149#issuecomment-281851976
+#     ? restclient-http-parse-current
 
 ##################################################
 # Constants
@@ -38,6 +42,7 @@ Content-Type: application/json
 # Beware the hack! It parses out the token in a
 #   particularly nefarious way, as well as having
 #   some important stuff hardcoded in
+#   See notes above for possible alternative
 :jwt := <<
 (let ((url-request-method        "POST")
       (url-request-extra-headers '(("Content-Type" . "application/json")))
