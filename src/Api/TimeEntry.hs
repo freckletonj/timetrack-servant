@@ -30,6 +30,7 @@ import Data.Aeson.Lens
 import Control.Lens hiding    ((.=), set, (^.))
 import Control.Lens.TH
 import GHC.Generics           (Generic)
+import GHC.Int                (Int64)
 
 import Network.Wai
 import Network.Wai.Handler.Warp
@@ -55,25 +56,25 @@ import Api.Login
 --   and of course the TimeEntryID which Persistent
 --   normally handles anyways through `Entity`s
 
-data TimeEntryW = TimeEntryW { clockin :: UTCTime
-                             , clockout :: Maybe UTCTime
-                             , description :: String}
-                  deriving (Show, Generic, ToJSON, FromJSON)
+-- data TimeEntryW = TimeEntryW { clockin :: UTCTime
+--                              , clockout :: Maybe UTCTime
+--                              , description :: String}
+--                   deriving (Show, Generic, ToJSON, FromJSON)
 
-timeEntryW :: TimeEntry -> TimeEntryW
-timeEntryW TimeEntry{..} = TimeEntryW {
-  clockin       = timeEntryClockin
-  , clockout    = timeEntryClockout
-  , description = timeEntryDescription
-  }
+-- timeEntryW :: TimeEntry -> TimeEntryW
+-- timeEntryW TimeEntry{..} = TimeEntryW {
+--   clockin       = timeEntryClockin
+--   , clockout    = timeEntryClockout
+--   , description = timeEntryDescription
+--   }
 
-timeEntry :: (Key User) -> TimeEntryW -> TimeEntry
-timeEntry fk TimeEntryW{..} = TimeEntry {
-  timeEntryUser          = fk
-  , timeEntryClockin     = clockin
-  , timeEntryClockout    = clockout
-  , timeEntryDescription = description
-  }
+-- timeEntry :: (Key User) -> TimeEntryW -> TimeEntry
+-- timeEntry fk TimeEntryW{..} = TimeEntry {
+--   timeEntryUser          = fk
+--   , timeEntryClockin     = clockin
+--   , timeEntryClockout    = clockout
+--   , timeEntryDescription = description
+--   }
 
 {-
 Design Pattern ------------------------------
@@ -122,49 +123,124 @@ type MyAPI = "users" :> CRUD UserId User
 
 -}
 
+
+--------------------------------------------------
+-- CRUD
+newtype MKey a = MKey { getMKey :: Int64 } deriving (Generic, FromJSON, ToJSON, Show)
+
+_MKey :: ToBackendKey SqlBackend a => Iso' (MKey a) (Key a)
+_MKey = iso (toSqlKey . getMKey) (MKey . fromSqlKey)
+
+type CRUD db act = ReqBody '[JSON] db :> Post '[JSON] (MKey db)
+                   :<|> Capture "id" (MKey db) :> (
+                             Get '[JSON] db
+                             :<|> ReqBody '[JSON] act :> Put '[JSON] ()
+                             :<|> Delete '[JSON] ())
+  
+--------------------------------------------------
+-- TimeEntry Types
+
+{- Model.hs
+TimeEntry json
+  clockin      UTCTime
+  clockout     UTCTime Maybe
+  description  String
+  deriving Show Eq
+
+TimeEntryRel json
+  time TimeEntry
+  user UserId
+  deriving Show Eq
+-}
+
+data TimeEntryResponse = TimeEntryResponse
+  {
+    terid          :: TimeEntryId
+  , terclockin     :: UTCTime
+  , terclockout    :: Maybe UTCTime
+  , terdescription :: String
+  } deriving (Show)
+
+$(deriveToJSON defaultOptions { fieldLabelModifier = drop 3 } ''TimeEntryResponse)
+
+mkTimeEntryResponse :: Entity TimeEntry -> TimeEntryResponse
+mkTimeEntryResponse (Entity key TimeEntry{..}) = TimeEntryResponse
+                                                 key
+                                                 timeEntryClockin
+                                                 timeEntryClockout
+                                                 timeEntryDescription
+
+
+----------
+
+data TimeEntryAction = TimeEntryAction
+  {
+    actClockin :: Maybe UTCTime
+  , actClockout :: Maybe UTCTime
+  , actDescription :: Maybe String
+  } deriving (Show)
+
+instance FromJSON TimeEntryAction where
+  parseJSON (Object o) = TimeEntryAction
+    <$> o .:? "clockin"
+    <*> o .:? "clockout"
+    <*> o .:? "description"
+
+-- instance ToJSON TimeEntryAction where -- shouldn't be necessary (?)
+
+actionToUpdates :: TimeEntryAction -> [Update TimeEntry]
+actionToUpdates TimeEntryAction{..} = updateClockin
+                                      ++ updateClockout
+                                      ++ updateDescription
+  where
+    updateClockin     = maybe [] (\x -> [TimeEntryClockin     =. x])       actClockin
+    updateClockout    = maybe [] (\x -> [TimeEntryClockout    =. Just x]) actClockout
+    updateDescription = maybe [] (\x -> [TimeEntryDescription =. x])   actDescription
+
+    
 --------------------------------------------------
 -- Api
 
 type TimesAPI =
   -- List All
   Get '[JSON] [Entity TimeEntry]
+  :<|> CRUD TimeEntry TimeEntryAction TimeEntryResponse
+  -- -- Create New
+  -- :<|> ReqBody '[JSON] TimeEntryW
+  -- :> Post '[JSON] (Key TimeEntry)
 
-  -- Create New
-  :<|> ReqBody '[JSON] TimeEntryW
-  :> Post '[JSON] (Key TimeEntry)
+  -- :<|> Capture "TimeEntryId" (Key TimeEntry) :>
+  -- (
 
-  :<|> Capture "TimeEntryId" (Key TimeEntry) :>
-  (
+  --   -- Get One
+  --   Get '[JSON] (Maybe (Entity TimeEntry))
 
-    -- Get One
-    Get '[JSON] (Maybe (Entity TimeEntry))
+  --   -- Update One
+  --   :<|> ReqBody '[JSON] TimeEntryW
+  --   :> Put '[JSON] Int
 
-    -- Update One
-    :<|> ReqBody '[JSON] TimeEntryW
-    :> Put '[JSON] Int
-
-    -- Delete One
-    :<|> Delete '[JSON] NoContent
-  )
+  --   -- Delete One
+  --   :<|> Delete '[JSON] NoContent
+  -- )
 
   
 timesServerT :: AuthResult Token -> ServerT TimesAPI App
 timesServerT (Authenticated tok)  =
   listTimes
-  :<|> createTime
-  :<|> (\ti ->
-           getTime ti
-           :<|> updateTime ti
-           :<|> deleteTime ti
-       )
+  :<|> (createTime
+        :<|> (\ti ->
+                getTime ti
+               :<|> updateTime ti
+               :<|> deleteTime ti
+             ))
   where u = userId tok
 
-        listTimes :: App [Entity TimeEntry]
+        listTimes :: App [TimeEntryResponse]
         listTimes = runDb (selectList [TimeEntryUser ==. u] [])
-                    >>= return
+                    >>= return . fmap mkTimeEntryResponse
         
-        createTime :: TimeEntryW -> App (Key TimeEntry)
-        createTime tew = runDb (insert (timeEntry u tew)) >>= return
+        createTime :: TimeEntry -> App (Key TimeEntry)
+        createTime te = runDb (insert (timeEntry u te)) >>= return
         
         getTime :: (Key TimeEntry) -> App (Maybe (Entity TimeEntry))
         getTime i = runDb (selectFirst [ (TimeEntryUser ==. u)

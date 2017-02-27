@@ -68,10 +68,14 @@ Login json
   deriving Show Eq
   
 TimeEntry json
-  user         UserId
   clockin      UTCTime
   clockout     UTCTime Maybe
   description  String
+  deriving Show Eq
+
+TimeEntryRel json
+  time TimeEntry
+  user UserId
   deriving Show Eq
 |]
 
