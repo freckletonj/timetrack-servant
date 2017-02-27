@@ -63,18 +63,21 @@ User json
   deriving Show Eq
   
 Login json
+  Id        UUID sqltype=uuid default=uuid_generate_v4()
   user      UserId
   passHash  String
   deriving Show Eq
   
 TimeEntry json
+  Id           UUID sqltype=uuid default=uuid_generate_v4()
   clockin      UTCTime
   clockout     UTCTime Maybe
   description  String
   deriving Show Eq
 
 TimeEntryRel json
-  time TimeEntry
+  Id   UUID sqltype=uuid default=uuid_generate_v4()
+  time TimeEntryId
   user UserId
   deriving Show Eq
 |]

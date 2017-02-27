@@ -18,6 +18,7 @@ import Data.Text              (Text, pack, unpack)
 import Data.Time              (UTCTime, getCurrentTime)
 import Data.Time.Clock.POSIX  (posixSecondsToUTCTime)
 import Data.Typeable          (Typeable)
+import Data.UUID
 
 import Control.Monad.IO.Class (liftIO)
 import Control.Monad.Logger   (runStdoutLoggingT)
@@ -39,9 +40,9 @@ import Servant
 import Servant.Auth.Server
 import Servant.Auth.Server.SetCookieOrphan ()
 
-import Database.Persist.Postgresql
+import qualified Database.Persist.Postgresql as P
 import Database.Persist.TH
-import qualified Database.Esqueleto as E
+import Database.Esqueleto
 
 import Models
 import Config
@@ -126,16 +127,20 @@ type MyAPI = "users" :> CRUD UserId User
 
 --------------------------------------------------
 -- CRUD
-newtype MKey a = MKey { getMKey :: Int64 } deriving (Generic, FromJSON, ToJSON, Show)
+-- newtype MKey a = MKey { getMKey :: UUID } deriving (Generic, FromJSON, ToJSON, Show)
 
-_MKey :: ToBackendKey SqlBackend a => Iso' (MKey a) (Key a)
-_MKey = iso (toSqlKey . getMKey) (MKey . fromSqlKey)
+-- _MKey :: ToBackendKey SqlBackend a => Iso' (MKey a) (Key a)
+-- _MKey = iso (toSqlKey . getMKey) (MKey . fromSqlKey)
 
-type CRUD db act = ReqBody '[JSON] db :> Post '[JSON] (MKey db)
-                   :<|> Capture "id" (MKey db) :> (
-                             Get '[JSON] db
-                             :<|> ReqBody '[JSON] act :> Put '[JSON] ()
-                             :<|> Delete '[JSON] ())
+-- cruft dependency from Yesod's Persistent
+-- instance FromHttpApiData (Key a) where
+-- instance ToHttpApiData (Key a) where
+  
+type CRUD db act = ReqBody '[JSON] db :> Post '[JSON] (Key db)
+                   :<|> Capture "id" (Key db) :> (
+                             Get '[JSON] (Entity db)
+                             :<|> ReqBody '[JSON] act :> Put '[JSON] NoContent
+                             :<|> Delete '[JSON] NoContent)
   
 --------------------------------------------------
 -- TimeEntry Types
@@ -153,24 +158,6 @@ TimeEntryRel json
   deriving Show Eq
 -}
 
-data TimeEntryResponse = TimeEntryResponse
-  {
-    terid          :: TimeEntryId
-  , terclockin     :: UTCTime
-  , terclockout    :: Maybe UTCTime
-  , terdescription :: String
-  } deriving (Show)
-
-$(deriveToJSON defaultOptions { fieldLabelModifier = drop 3 } ''TimeEntryResponse)
-
-mkTimeEntryResponse :: Entity TimeEntry -> TimeEntryResponse
-mkTimeEntryResponse (Entity key TimeEntry{..}) = TimeEntryResponse
-                                                 key
-                                                 timeEntryClockin
-                                                 timeEntryClockout
-                                                 timeEntryDescription
-
-
 ----------
 
 data TimeEntryAction = TimeEntryAction
@@ -186,16 +173,14 @@ instance FromJSON TimeEntryAction where
     <*> o .:? "clockout"
     <*> o .:? "description"
 
--- instance ToJSON TimeEntryAction where -- shouldn't be necessary (?)
-
-actionToUpdates :: TimeEntryAction -> [Update TimeEntry]
-actionToUpdates TimeEntryAction{..} = updateClockin
+--actionToUpdates :: TimeEntryAction -> [P.Update TimeEntry]
+actiontoupdates TimeEntryAction{..} = updateClockin
                                       ++ updateClockout
                                       ++ updateDescription
   where
-    updateClockin     = maybe [] (\x -> [TimeEntryClockin     =. x])       actClockin
-    updateClockout    = maybe [] (\x -> [TimeEntryClockout    =. Just x]) actClockout
-    updateDescription = maybe [] (\x -> [TimeEntryDescription =. x])   actDescription
+    updateClockin     = maybe [] (\x -> [TimeEntryClockin     =. val x])       actClockin
+    updateClockout    = maybe [] (\x -> [TimeEntryClockout    =. val (Just x)]) actClockout
+    updateDescription = maybe [] (\x -> [TimeEntryDescription =. val x])   actDescription
 
     
 --------------------------------------------------
@@ -204,25 +189,7 @@ actionToUpdates TimeEntryAction{..} = updateClockin
 type TimesAPI =
   -- List All
   Get '[JSON] [Entity TimeEntry]
-  :<|> CRUD TimeEntry TimeEntryAction TimeEntryResponse
-  -- -- Create New
-  -- :<|> ReqBody '[JSON] TimeEntryW
-  -- :> Post '[JSON] (Key TimeEntry)
-
-  -- :<|> Capture "TimeEntryId" (Key TimeEntry) :>
-  -- (
-
-  --   -- Get One
-  --   Get '[JSON] (Maybe (Entity TimeEntry))
-
-  --   -- Update One
-  --   :<|> ReqBody '[JSON] TimeEntryW
-  --   :> Put '[JSON] Int
-
-  --   -- Delete One
-  --   :<|> Delete '[JSON] NoContent
-  -- )
-
+  :<|> CRUD TimeEntry TimeEntryAction
   
 timesServerT :: AuthResult Token -> ServerT TimesAPI App
 timesServerT (Authenticated tok)  =
@@ -235,35 +202,46 @@ timesServerT (Authenticated tok)  =
              ))
   where u = userId tok
 
-        listTimes :: App [TimeEntryResponse]
-        listTimes = runDb (selectList [TimeEntryUser ==. u] [])
-                    >>= return . fmap mkTimeEntryResponse
+        listTimes :: App [Entity TimeEntry]
+        listTimes = undefined
+          -- runDb (selectList [TimeEntryUser ==. u] [])
+          --           >>= return 
         
         createTime :: TimeEntry -> App (Key TimeEntry)
-        createTime te = runDb (insert (timeEntry u te)) >>= return
-        
-        getTime :: (Key TimeEntry) -> App (Maybe (Entity TimeEntry))
-        getTime i = runDb (selectFirst [ (TimeEntryUser ==. u)
-                                       , (TimeEntryId ==. i)] [])
-        
-        updateTime :: (Key TimeEntry) -> TimeEntryW -> App Int
-        updateTime i te = do
-          a <- runDb
-            (E.updateCount $ \t -> do
+        createTime te = do
+          a <- runDb $ do
+            k <- insert te
+            insert $ TimeEntryRel k u
+            return k
 
-              -- boiler plate!!! this can eventually be moved into a CRUD generalization
-              E.set t [ TimeEntryClockin        E.=. (E.val $ clockin te)
-                      , TimeEntryClockout       E.=. (E.val $ clockout te)
-                      , TimeEntryDescription    E.=. (E.val $ description te)]
+          --return $ view (Control.Lens.from Key) a -- ^. ?
+          return a
+        
+        getTime :: (Key TimeEntry) -> App (Entity TimeEntry)
+        getTime i = undefined
+          -- runDb (selectFirst [ (TimeEntryUser ==. u)
+          --                              , (TimeEntryId ==. i)] [])
+        
+        updateTime :: (Key TimeEntry) -> TimeEntryAction -> App NoContent -- how to handle failure?
+        updateTime i te = undefined
+          -- do
+          -- a <- runDb
+          --   (E.updateCount $ \t -> do
 
-              -- check to make sure they own this row, security shouldn't be conflated here, but how then?
-              E.where_ (t E.^. TimeEntryUser    E.==. (E.val u)
-                  E.&&. t E.^. TimeEntryId      E.==. (E.val i))
-            )
-          return . fromIntegral $ a
+          --     -- boiler plate!!! this can eventually be moved into a CRUD generalization
+          --     E.set t [ TimeEntryClockin        E.=. (E.val $ clockin te)
+          --             , TimeEntryClockout       E.=. (E.val $ clockout te)
+          --             , TimeEntryDescription    E.=. (E.val $ description te)]
+
+          --     -- check to make sure they own this row, security shouldn't be conflated here, but how then?
+          --     E.where_ (t E.^. TimeEntryUser    E.==. (E.val u)
+          --         E.&&. t E.^. TimeEntryId      E.==. (E.val i))
+          --   )
+          -- return . fromIntegral $ a
         
         deleteTime :: (Key TimeEntry) -> App NoContent
-        deleteTime i = runDb (delete i) >> return NoContent
+        deleteTime i = undefined
+          -- runDb (delete i) >> return NoContent
         
 timesServerT _ = throwAll err401
 

@@ -68,7 +68,7 @@ Content-Type: application/json
 POST :s/signup
 :json
 {
-    "email": "b",
+    "email": "a",
     "clearPass": "a"
 }
 
