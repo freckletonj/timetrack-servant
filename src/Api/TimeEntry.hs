@@ -14,11 +14,13 @@ module Api.TimeEntry where
 
 import Data.Aeson
 import Data.Aeson.TH
+import Data.Bool              (bool)
 import Data.Text              (Text, pack, unpack)
 import Data.Time              (UTCTime, getCurrentTime)
 import Data.Time.Clock.POSIX  (posixSecondsToUTCTime)
 import Data.Typeable          (Typeable)
 import Data.UUID
+import Debug.Trace            (trace)
 
 import Control.Monad.IO.Class (liftIO)
 import Control.Monad.Logger   (runStdoutLoggingT)
@@ -28,7 +30,7 @@ import Control.Monad.Except   (ExceptT, MonadError)
 import Data.Aeson
 import Data.Aeson.Types       (Parser, parseMaybe)
 import Data.Aeson.Lens
-import Control.Lens hiding    ((.=), set, (^.))
+import Control.Lens hiding    ((.=), set, (^.), from)
 import Control.Lens.TH
 import GHC.Generics           (Generic)
 import GHC.Int                (Int64)
@@ -49,96 +51,29 @@ import Config
 import Lib
 import Api.Login
 
---------------------------------------------------
--- Annoying Data Munging
-
--- TimeEntrys that go over the Wire
---   they're just missing the `user` foreign key
---   and of course the TimeEntryID which Persistent
---   normally handles anyways through `Entity`s
-
--- data TimeEntryW = TimeEntryW { clockin :: UTCTime
---                              , clockout :: Maybe UTCTime
---                              , description :: String}
---                   deriving (Show, Generic, ToJSON, FromJSON)
-
--- timeEntryW :: TimeEntry -> TimeEntryW
--- timeEntryW TimeEntry{..} = TimeEntryW {
---   clockin       = timeEntryClockin
---   , clockout    = timeEntryClockout
---   , description = timeEntryDescription
---   }
-
--- timeEntry :: (Key User) -> TimeEntryW -> TimeEntry
--- timeEntry fk TimeEntryW{..} = TimeEntry {
---   timeEntryUser          = fk
---   , timeEntryClockin     = clockin
---   , timeEntryClockout    = clockout
---   , timeEntryDescription = description
---   }
-
 {-
-Design Pattern ------------------------------
--- https://github.com/jhedev/todobackend-haskell/blob/master/todobackend-common/src/TodoBackend/Model.hs
+TODO: IMPORTANT GENERALIZATION
 
--- Servant
-... ReqBody ... ModelXAction :> ... ModelXResponse
+----------
 
--- DB, persistent dresses it with extras, eg a primary key
-data ModelX = ModelX { modelXFieldA :: A, modelXFieldB :: B } -- probably defined in Persistent.TH form
+CRUD and relatives belong in their own module
 
--- HTTP
--- response adds id, and some examples add a url path to this resource
-data ModelXResponse = ModelXResponse { mxrid :: ModelXId, mxrFieldA :: A, mxrFieldB :: B } deriving (Show)
-$(deriveToJSON defaultOptions { fieldLabelModifier = drop (length "mxr") } -- some fn for character casing?
-  ''ModelXResponse)
+actionToMethod should be a class method so that the server for CRUD can be generalized
 
--- Action, great for PATCHes
--- maybe everything!
-data ModelXAction = ModelXAction { actFieldA :: Maybe A, actFieldB :: Maybe B } deriving (Show, Generic, FromJSON) -- prob no ToJSON?
+we need CRUD, and CRUD-with-FKs, possibly they can be related
 
--- defaults -- probably not a great idea
-actionToDefaultModelX :: ModelXAction -> ModelX
+CRUD-with-FKs should just need passed in a Model, and a ModelRelations
 
--- PATCHable updates
-actionToUpdates :: ModelXAction -> [Update ModelX]
-... [ModelXFieldA =. ...] ++ [ModelXFieldB =. ...]
+ModelAction could be generated as well, TH?
 
 -}
-
-{-
-Useful Abstraction to build at some point
-https://www.reddit.com/r/haskell/comments/3eylp6/testing_servant_persistent_web_app/
-
--- CRUD endpoints for entities of type 'a'
--- indexed by values of type 'i'
-type CRUD i a = ReqBody '[JSON] a :> POST '[JSON] () -- create
-           :<|> Capture "id" i :> Get '[JSON] a -- read
-           :<|> Capture "id" i :> ReqBody '[JSON] a :> Put '[JSON] () -- update
-           :<|> Capture "id" i :> Delete '[JSON] () -- delete
-           -- the last three could be written:
-           -- Capture "id" i :> (Get ... :<|> ReqBody ... :> Put ... :<|> Delete ...)
-
-type MyAPI = "users" :> CRUD UserId User
-        :<|> "products" :> CRUD ProductId Product
-
--}
-
 
 --------------------------------------------------
 -- CRUD
--- newtype MKey a = MKey { getMKey :: UUID } deriving (Generic, FromJSON, ToJSON, Show)
 
--- _MKey :: ToBackendKey SqlBackend a => Iso' (MKey a) (Key a)
--- _MKey = iso (toSqlKey . getMKey) (MKey . fromSqlKey)
-
--- cruft dependency from Yesod's Persistent
--- instance FromHttpApiData (Key a) where
--- instance ToHttpApiData (Key a) where
-  
 type CRUD db act = ReqBody '[JSON] db :> Post '[JSON] (Key db)
                    :<|> Capture "id" (Key db) :> (
-                             Get '[JSON] (Entity db)
+                             Get '[JSON] db
                              :<|> ReqBody '[JSON] act :> Put '[JSON] NoContent
                              :<|> Delete '[JSON] NoContent)
   
@@ -174,7 +109,7 @@ instance FromJSON TimeEntryAction where
     <*> o .:? "description"
 
 --actionToUpdates :: TimeEntryAction -> [P.Update TimeEntry]
-actiontoupdates TimeEntryAction{..} = updateClockin
+actionToUpdates TimeEntryAction{..} = updateClockin
                                       ++ updateClockout
                                       ++ updateDescription
   where
@@ -186,10 +121,8 @@ actiontoupdates TimeEntryAction{..} = updateClockin
 --------------------------------------------------
 -- Api
 
-type TimesAPI =
-  -- List All
-  Get '[JSON] [Entity TimeEntry]
-  :<|> CRUD TimeEntry TimeEntryAction
+type TimesAPI = Get '[JSON] [Entity TimeEntry]
+                :<|> CRUD TimeEntry TimeEntryAction
   
 timesServerT :: AuthResult Token -> ServerT TimesAPI App
 timesServerT (Authenticated tok)  =
@@ -203,45 +136,39 @@ timesServerT (Authenticated tok)  =
   where u = userId tok
 
         listTimes :: App [Entity TimeEntry]
-        listTimes = undefined
-          -- runDb (selectList [TimeEntryUser ==. u] [])
-          --           >>= return 
-        
+        listTimes = runDb (select $
+                          Database.Esqueleto.from $ \(t, r) -> do
+                              where_ (t ^. TimeEntryId ==. r ^. TimeEntryRelTime
+                                  &&. r ^. TimeEntryRelUser ==. val u)
+                              return t)
+                    >>= return
+                          
         createTime :: TimeEntry -> App (Key TimeEntry)
-        createTime te = do
-          a <- runDb $ do
-            k <- insert te
-            insert $ TimeEntryRel k u
-            return k
-
-          --return $ view (Control.Lens.from Key) a -- ^. ?
-          return a
+        createTime te = (runDb $ do
+                            k <- insert te            -- insert time
+                            insert $ TimeEntryRel k u -- insert relation to user
+                            return k)
+                        >>= return
         
-        getTime :: (Key TimeEntry) -> App (Entity TimeEntry)
-        getTime i = undefined
-          -- runDb (selectFirst [ (TimeEntryUser ==. u)
-          --                              , (TimeEntryId ==. i)] [])
+        getTime :: (Key TimeEntry) -> App TimeEntry
+        getTime i = runDb (get i) >>= maybe (throwError err404) return -- TODO: not row-level secure
         
         updateTime :: (Key TimeEntry) -> TimeEntryAction -> App NoContent -- how to handle failure?
-        updateTime i te = undefined
-          -- do
-          -- a <- runDb
-          --   (E.updateCount $ \t -> do
-
-          --     -- boiler plate!!! this can eventually be moved into a CRUD generalization
-          --     E.set t [ TimeEntryClockin        E.=. (E.val $ clockin te)
-          --             , TimeEntryClockout       E.=. (E.val $ clockout te)
-          --             , TimeEntryDescription    E.=. (E.val $ description te)]
-
-          --     -- check to make sure they own this row, security shouldn't be conflated here, but how then?
-          --     E.where_ (t E.^. TimeEntryUser    E.==. (E.val u)
-          --         E.&&. t E.^. TimeEntryId      E.==. (E.val i))
-          --   )
-          -- return . fromIntegral $ a
+        updateTime i act = (runDb $ updateCount $ \te -> do
+                              set te $ actionToUpdates act
+                              where_ (te ^. TimeEntryId ==. val i))
+                           >>= bool (throwError err404) (return NoContent) . (> 0)
         
         deleteTime :: (Key TimeEntry) -> App NoContent
-        deleteTime i = undefined
-          -- runDb (delete i) >> return NoContent
+        deleteTime i = (runDb $ do
+                           -- TODO, something with cascading may be more efficient here
+                           --       deleteCascade exists, but doesn't count (IIRC),
+                           --       so I wouldn't be able to return an appropriate code
+                           -- delete relation first
+                           c' <- deleteCount $ from (\ tr -> where_ (tr ^. TimeEntryRelTime ==. val i)) 
+                           c <- deleteCount $ from (\ te -> where_ (te ^. TimeEntryId ==. val i))
+                           return $ c+c')
+                       >>= bool (throwError err404) (return NoContent) . (==2)
         
 timesServerT _ = throwAll err401
 

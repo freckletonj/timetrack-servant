@@ -93,22 +93,30 @@ POST :s/time
 :json
 {
     "clockin": "2013-10-17T09:42:49.007Z",
-    "description": "from restclient"
+    "description": "from restclient NEW"
 }
 
+# Time ID
+:t=ae9c759f-6c1a-4073-b864-6d6442de10cf
+
 # Get Time
-GET :s/time/1
+GET :s/time/:t
 :auth
 :json
 
 # Update Time
-PUT :s/time/1
+PUT :s/time/:t
 :auth
 :json
 {
     "clockin": "2013-10-17T09:42:49.007Z",
-    "description": "hey"
+    "description": "heyo"
 }
+
+# Delete Time
+DELETE :s/time/:t
+:auth
+:json
 
 # Delete Time
 
