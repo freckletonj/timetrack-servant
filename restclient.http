@@ -92,12 +92,12 @@ POST :s/time
 :auth
 :json
 {
-    "clockin": "2013-10-17T09:42:49.007Z",
-    "description": "from restclient NEW"
+    "clockin": "2013-10-17T09:42:49.123Z",
+    "description": "tryna add ms"
 }
 
 # Time ID
-:t=ae9c759f-6c1a-4073-b864-6d6442de10cf
+:t=17efbd4d-c25d-422a-a0ca-1864b5cfe8c9
 
 # Get Time
 GET :s/time/:t

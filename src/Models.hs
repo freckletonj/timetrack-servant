@@ -12,8 +12,6 @@ module Models where
 
 import           Control.Monad.Reader
 import           Data.Aeson           (FromJSON, ToJSON)
-import Data.Time (UTCTime)
-
 
 import           Database.Persist.Sql
 import           Database.Persist.TH  (mkMigrate, mkPersist, persistLowerCase,
@@ -70,8 +68,8 @@ Login json
   
 TimeEntry json
   Id           UUID sqltype=uuid default=uuid_generate_v4()
-  clockin      UTCTime
-  clockout     UTCTime Maybe
+  clockin      CUTCTime
+  clockout     CUTCTime Maybe
   description  String
   deriving Show Eq
 

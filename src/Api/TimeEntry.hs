@@ -16,7 +16,7 @@ import Data.Aeson
 import Data.Aeson.TH
 import Data.Bool              (bool)
 import Data.Text              (Text, pack, unpack)
-import Data.Time              (UTCTime, getCurrentTime)
+import Data.Time              (getCurrentTime)
 import Data.Time.Clock.POSIX  (posixSecondsToUTCTime)
 import Data.Typeable          (Typeable)
 import Data.UUID
@@ -47,6 +47,7 @@ import Database.Persist.TH
 import Database.Esqueleto
 
 import Models
+import Models.Util
 import Config
 import Lib
 import Api.Login
@@ -59,6 +60,13 @@ TODO: IMPORTANT GENERALIZATION
 CRUD and relatives belong in their own module
 
 actionToMethod should be a class method so that the server for CRUD can be generalized
+
+class Updatable a where
+  actionToMethod :: ModelAction -> [Update Model]
+
+note: an ActionModel is like the model, but all Fields become Maybe Fields
+      I would think that (Maybe x) fields should become (Maybe (Maybe x))
+      so that the field can be reset to Nothing if the client wishes
 
 we need CRUD, and CRUD-with-FKs, possibly they can be related
 
@@ -73,9 +81,12 @@ ModelAction could be generated as well, TH?
 
 type CRUD db act = ReqBody '[JSON] db :> Post '[JSON] (Key db)
                    :<|> Capture "id" (Key db) :> (
-                             Get '[JSON] db
-                             :<|> ReqBody '[JSON] act :> Put '[JSON] NoContent
-                             :<|> Delete '[JSON] NoContent)
+  Get '[JSON] db
+  :<|> ReqBody '[JSON] act :> Put '[JSON] String -- Should prob be
+                                                 -- NoContent, but
+                                                 -- cljs-ajax thinks
+                                                 -- those are errors
+  :<|> Delete '[JSON] String)
   
 --------------------------------------------------
 -- TimeEntry Types
@@ -97,8 +108,8 @@ TimeEntryRel json
 
 data TimeEntryAction = TimeEntryAction
   {
-    actClockin :: Maybe UTCTime
-  , actClockout :: Maybe UTCTime
+    actClockin :: Maybe CUTCTime
+  , actClockout :: Maybe CUTCTime
   , actDescription :: Maybe String
   } deriving (Show)
 
@@ -121,6 +132,7 @@ actionToUpdates TimeEntryAction{..} = updateClockin
 --------------------------------------------------
 -- Api
 
+-- TODO: i can probably simplify the server implementation
 type TimesAPI = Get '[JSON] [Entity TimeEntry]
                 :<|> CRUD TimeEntry TimeEntryAction
   
@@ -153,13 +165,13 @@ timesServerT (Authenticated tok)  =
         getTime :: (Key TimeEntry) -> App TimeEntry
         getTime i = runDb (get i) >>= maybe (throwError err404) return -- TODO: not row-level secure
         
-        updateTime :: (Key TimeEntry) -> TimeEntryAction -> App NoContent -- how to handle failure?
+        updateTime :: (Key TimeEntry) -> TimeEntryAction -> App String -- how to handle failure?
         updateTime i act = (runDb $ updateCount $ \te -> do
                               set te $ actionToUpdates act
                               where_ (te ^. TimeEntryId ==. val i))
-                           >>= bool (throwError err404) (return NoContent) . (> 0)
+                           >>= bool (throwError err404) (return "") . (> 0)
         
-        deleteTime :: (Key TimeEntry) -> App NoContent
+        deleteTime :: (Key TimeEntry) -> App String
         deleteTime i = (runDb $ do
                            -- TODO, something with cascading may be more efficient here
                            --       deleteCascade exists, but doesn't count (IIRC),
@@ -168,7 +180,7 @@ timesServerT (Authenticated tok)  =
                            c' <- deleteCount $ from (\ tr -> where_ (tr ^. TimeEntryRelTime ==. val i)) 
                            c <- deleteCount $ from (\ te -> where_ (te ^. TimeEntryId ==. val i))
                            return $ c+c')
-                       >>= bool (throwError err404) (return NoContent) . (==2)
+                       >>= bool (throwError err404) (return "") . (==2)
         
 timesServerT _ = throwAll err401
 

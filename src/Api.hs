@@ -57,6 +57,10 @@ import Api.TimeEntry
 import Api.User
 import Api.Login
 
+import Network.Wai.Middleware.Cors (cors, simpleCors, simpleCorsResourcePolicy, corsRequestHeaders, corsMethods, simpleMethods)
+
+----------
+
 type API auths =      "time" :> (Auth auths Token :> TimesAPI)
                  :<|> "user" :> UserAPI
                  :<|> LoginAPI
@@ -107,7 +111,11 @@ startApp = do
   --   Left e -> putStrLn $ "Error generating token: " ++ show e 
   --   Right v -> putStrLn $ "try this: " ++ "curl -H \"Authorization: Bearer " ++ show v ++ "\" localhost:8080/name -v"
     
-  run 8081 app
+  run 8081 $ cors (const $ Just $ simpleCorsResourcePolicy -- TODO:: This sets CORS to *, not good
+                   {corsRequestHeaders = ["Content-Type", "Authorization"]
+                   , corsMethods = "DELETE" : "PUT" : "POST": simpleMethods}
+                   )
+    app
 
 -- outputs something like the following, before starting the server:
 -- curl -H "Authorization: Bearer "eyJhbGciOiJIUzI1NiJ9.eyJkYXQiOnsiZW1haWwiOiJjaGFyaXphcmQuYXdlc29tZUBob3RtYWlsLmNvbSIsIm5hbWUiOiJjaGFyaXphcmQifX0.t-VlSuSZi6l67uguOEZXDBkcMkxMvDx-f8sRVMPy-O8"" localhost:8080/name -v

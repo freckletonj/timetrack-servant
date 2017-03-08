@@ -25,6 +25,7 @@ library
                 , Api.TimeEntry
                 , Api.User
                 , Api.Login
+                , Models.Util
   build-depends:       base >= 4.7 && < 5
                      , aeson
                      , lens-aeson
@@ -53,6 +54,7 @@ library
                      , text
                      , time
                      , wai
+                     , wai-cors
                      , warp
                        
 

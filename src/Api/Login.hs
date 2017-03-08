@@ -133,6 +133,7 @@ getToken jwts obj = either (\_ -> throwError err401)
                     (return . B.unpack . BL.toStrict)
                     =<< liftIO (returnJwt jwts obj)
 
+-- TODO: refresh token, and add other normal JWT things
 returnJwt :: (ToJWT a) =>  JWTSettings -> a -> IO (Either Error BL.ByteString)
 returnJwt jwts obj = do
   now <- getCurrentTime

@@ -7,13 +7,18 @@ module Models.Util where
 
 import System.Random
 import GHC.Generics (Generic)
-import Database.Persist.Sql
+import Database.Persist.Sql hiding (UTCTime)
 import Data.Aeson (FromJSON, ToJSON, toJSON, parseJSON, withText, object, Value(String))
 import Data.UUID
 import Data.Text
+-- import Data.Time (UTCTime)
+import Data.Time (UTCTime(..), picosecondsToDiffTime, diffTimeToPicoseconds) -- constructor
+
 import System.Random
 import qualified Data.ByteString as B8
 import Web.PathPieces (PathPiece(..))
+
+import Debug.Trace (trace)
 
 --------------------------------------------------
 -- UUID JSON
@@ -48,24 +53,17 @@ instance PathPiece UUID where
   toPathPiece = toText
   fromPathPiece = fromText
 
-
 --------------------------------------------------
+-- Custom UTCTime, since the stock one does weirdness with milliseconds being there, or not
 
--- INSTEAD of deriving all of this for UserUUID
--- I'm going instead for just proper UUID instances
--- above
+newtype CUTCTime = CUTCTime UTCTime
+  deriving (Show, Eq, Generic, ToJSON, FromJSON)
 
--- newtype UserUUID = UserUUID { userUuid :: UUID }
---                  deriving (Show, Read, Eq, Ord, Random, Generic, ToJSON, FromJSON)
-
--- instance PersistField UserUUID where
---   toPersistValue u = PersistDbSpecific . toASCIIBytes . userUuid $ u
---   fromPersistValue (PersistDbSpecific t) =
---     case fromASCIIBytes t of
---       Just x -> Right . UserUUID $ x
---       Nothing -> Left "Invalid UUID"
---   fromPersistValue _ = Left "Not PersistDBSpecific"
+instance PersistField CUTCTime where
+  toPersistValue (CUTCTime (UTCTime d t)) = toPersistValue (UTCTime d (removeMs t))
+    where
+      removeMs =  fromInteger . floor
+  fromPersistValue (PersistUTCTime x) = Right $ CUTCTime x
   
--- instance PersistFieldSql UserUUID where
---   sqlType _ = SqlOther "uuid"
-
+instance PersistFieldSql CUTCTime where
+  sqlType _ = SqlDayTime
