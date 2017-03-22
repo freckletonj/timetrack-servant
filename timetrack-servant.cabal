@@ -43,6 +43,7 @@ library
                      , monad-logger
                      , mtl
                      , esqueleto
+                     , operational
                      , persistent
                      , persistent-postgresql
                      , persistent-template
