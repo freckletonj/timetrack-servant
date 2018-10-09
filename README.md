@@ -17,9 +17,33 @@ dev:
 
 # Issues
 
+# IDEAS
+
+- Main abstraction
+    - source
+    - agg-fn
+    - display-fn
+
+- data
+    - commits
+    - checkin/out
+    - issues
+    - PR's
+    - LoC
+    - slack activity
+    - phone/text activity
+    - crm activity
+    - email activity
+    - 
 
 # TODO
 
+- A GREAT ABSTRACTION for maintaing types
+    - make them polymorphic, especially when, say you have a thing
+      that can have an ID or a value, move that to the type
+    - https://www.reddit.com/r/haskell/comments/6490zu/maybe_use_a_type_parameter/
+    - http://www.parsonsmatt.org/2017/04/08/maybe_use_a_type_parameter.html
+    - https://www.youtube.com/watch?v=BHjIl81HgfE
 - timeentry-rel table, make time/user a FK, remove id
 - API returns sane error messages
 - auth roles

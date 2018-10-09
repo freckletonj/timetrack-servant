@@ -29,7 +29,7 @@ import Control.Monad.Except   (ExceptT, MonadError)
 
 import GHC.Generics           (Generic)
 
-import Network.Wai
+nimport Network.Wai
 import Network.Wai.Handler.Warp
 
 import Servant

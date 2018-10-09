@@ -41,8 +41,11 @@ library
                      , jose
                      , lens
                      , monad-logger
-                     , mtl
                      , esqueleto
+                       
+                     , free
+                     , mtl
+                                              
                      , operational
                      , persistent
                      , persistent-postgresql
